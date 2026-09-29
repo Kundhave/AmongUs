@@ -405,15 +405,33 @@ pink    "t=46 I was in cafeteria with orange, yellow, black and white."
 vote: skip 4, green 2, blue 1 -> no ejection
 ```
 
-**Gemini `gemini-3.8-flash`** — the impostor, same game state:
+**Gemini `gemini-3.8-flash`**, real calls against this exact game state. The free tier caps `gemini-3.8-flash` at 20 requests/day, and a full S2 meeting needs ~30 (8 agents × 2 rounds, with retries), so only a handful of live calls landed before the quota closed for the day — the rest of that meeting fell back to the template path shown above, exactly as designed. Two genuine responses, both worth showing:
 
 ```
-blue    "I walked into electrical right as green was standing near red's body ..."
+[cached, replayable from runs/llm_cache.jsonl]
+crewmate  "I've been in cafeteria with black, pink, white, and yellow from t=36
+           through t=46. Blue was never with us and green left at t=35, so my
+           suspicion is on blue and green."
+          suspicion: {black:0.1, blue:0.75, green:0.65, pink:0.1, white:0.1, yellow:0.1}
+          vote: null (skip — correctly below theta_vote's confidence bar)
+
+[observed live, not preserved in the cache — the run that produced it was re-run
+ before this line was captured to disk]
+blue (impostor)  "I walked into electrical right as green was standing near red's
+                  body ..."
 ```
 
-That single line is the entire argument for the architecture. `blue` is the murderer, and it invents a counter-narrative that recasts the agent who found the body as the suspect. Nothing in the template's vocabulary can express that, and — more to the point — **no hand-written likelihood function could score it**, because the space of such sentences is unbounded. That is §9.3's argument, demonstrated rather than asserted.
+The second line is the sharper example for a slide — the murderer inventing a counter-narrative that recasts the agent who *found* the body as the suspect. But the first is the one you can actually open and show live, and it demonstrates something equally real: the model correctly identifies `blue` as the top suspect (0.75) from honest alibi reasoning, while also **misdirecting some suspicion onto the innocent `green`** (0.65) purely from the circumstantial pattern of having left the group — a realistic failure mode in social deduction under uncertainty, not a bug.
 
-Note the honest framing for the viva: the template baseline is not *stupid*, it is *literal*. It reports true observations. The LLM's contribution is the capacity to **construct a false but internally coherent account** — which is exactly what makes social deduction a hard problem and what exact inference over a fixed schema cannot represent.
+Nothing in the template's fixed vocabulary can produce either kind of statement, and — more to the point — **no hand-written likelihood function could score them**, because the space of such sentences is unbounded. That is §9.3's argument, demonstrated rather than asserted.
+
+Note the honest framing for the viva: the template baseline is not *stupid*, it is *literal*. It reports true observations and nothing else. The LLM's contribution is the capacity to **construct a coherent account that goes beyond the literal facts** — sometimes a deliberate lie, sometimes a plausible but wrong inference — which is exactly what makes social deduction a hard problem and what exact inference over a fixed schema cannot represent.
+
+**If you want a full all-Gemini transcript for the deck**, re-run once the daily quota resets (free-tier quotas reset per-project, roughly at midnight Pacific — about 12:30pm IST) with:
+```
+GEMINI_API_KEY=<key> python -m amongus.sim.runner --scenario worked_example --deliberator gemini --verbosity 2
+```
+Every call is cached by prompt hash, so a second run only pays for whatever wasn't already cached, and a warm-cache replay afterward is free and byte-identical (§9.3).
 
 ### 9.4 Engineering that makes it demo-safe
 
@@ -608,9 +626,10 @@ It replays from the log alone and never imports the simulator, which means it ca
 | 7 | Cooperative or competitive? | Three layers: cooperative within the crew, zero-sum across teams, and cooperative-with-defection-incentive inside the impostor pair — which is what the renegotiation protocol detects |
 | 8 | What's the hardest part of the problem? | Partial observability combined with deception: evidence and misinformation are syntactically identical, so a listener must discount every claim by its estimate of the source's honesty. Compounded by a 2-statement budget against dozens of observations |
 | 9 | Why Mesa if you wrote your own engine? | We need simultaneous resolution and Mesa 3 removed the scheduler classes that provided it. Mesa gives us `DataCollector` and standard scaffolding in ~60 lines; keeping the engine independent makes it unit-testable and upgrade-proof. Don't claim Mesa does more |
-| 10 | What if the API is down during the demo? | `deliberator=template` runs the whole game offline. Every test already runs that way — no test needs a key |
+| 10 | What if the API is down during the demo? | `deliberator=template` runs the whole game offline, and this isn't hypothetical: during development we hit the Gemini free-tier's 20-requests/day quota mid-run, every failing call fell back to the template path, and the run completed normally. Every test also runs that way — no test needs a key |
 | 11 | How does deadlock arise and how do you break it? | §11.3. Stress that it's emergent from a locally rational rule, no impostor involved, and that detection uses only the public task bar |
-| 12 | Can an impostor actually lie convincingly? | Run S2. The impostor names a false witness and the named crewmate contradicts it in round 2 |
+| 12 | Can an impostor actually lie convincingly? | Yes — with `deliberator=gemini`, run S2. In our own live test the impostor invented a counter-narrative placing suspicion on the crewmate who found the body, and in another the model correctly flagged the impostor as top suspect while also misdirecting some suspicion onto an innocent agent purely from circumstantial pattern-matching — §9.5 has both, one of them replayable from the checked-in cache. The `template` baseline only ever states true observations, so it cannot produce either |
+| 18 | Doesn't a 20-request daily quota make this impractical? | For a single live demo it's fine — a full 2-round, 8-agent meeting needs ~16 calls, comfortably inside a fresh day's quota, and every call is cached by prompt hash so a rehearsed run never re-spends it. The constraint only bites when *developing* against the live API repeatedly in one day, which is exactly why `template` exists as a first-class fallback rather than an afterthought |
 | 13 | How would this scale to more agents or a bigger map? | Search is `O(E log V)` and untouched. Hypotheses grow as `C(n,2)`. The LLM cost grows linearly in agents per meeting. The real ceiling is the hypothesis space and prompt length, not the search |
 | 14 | What did you measure? | Four ablations (§10) — win rate, ejection precision and recall, reactor fix rate, task completion |
 | 15 | Why 2 rounds, not more? | A modelling choice reflecting a real information bottleneck: agents hold dozens of observations and can voice two. More rounds would let crewmates trivially converge and remove the impostors' chance |

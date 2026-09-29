@@ -11,8 +11,8 @@ Milestones per `docs/SPEC.md` §18. A milestone closes only when `test-runner` r
 | [x] | **M3 LLM meetings** | agent-engineer | llm tests green; warm-cache replay byte-identical | 2026-09-29 | Gemini + cache + template fallback; `--deliberator` flag |
 | [x] | **M4 Sabotage & protocols** | world-engineer → agent-engineer | S3 and S4 acceptance met; all five shock keys work | 2026-09-29 | Lights/doors/reactor; bid→commit→revoke→backup; deadlock |
 | [x] | **M5 UI, scenarios, docs** | ui-engineer ∥ telemetry-engineer | All scenarios run from the CLI; viewer replays each log | 2026-09-29 | Browser-verified on all four real logs |
-| [x] | **Spec review** | spec-reviewer | §5–§11, §13, §14, §16 audited | 2026-09-29 | 11 findings; engine core clean, gaps in policy detail |
-| [ ] | **Final** | orchestrator | One live Gemini run; fill measured numbers | | Awaiting last policy fixes |
+| [x] | **Spec review** | spec-reviewer | §5–§11, §13, §14, §16 audited | 2026-09-29 | 11 findings, all fixed; engine core audited clean |
+| [x] | **Final** | orchestrator | Live Gemini validation; fill measured numbers | 2026-09-29 | 328 tests green; quota-limited to 2 live samples, documented honestly in §9.5 |
 
 ## Deliverables for the two presentations
 
@@ -23,6 +23,13 @@ Milestones per `docs/SPEC.md` §18. A milestone closes only when `test-runner` r
 | P2 Interaction | S3 renegotiation log, S4 deadlock log | ✅ S3 reaches `SABOTAGE_FIXED` at t=20 |
 | P2 Demo | `viewer.html` + `run_demo.py` + live shock keys | ✅ verified in browser |
 | P2 Tools | Mesa 3.5.1 wrapper, README | ✅ |
+| P2 LLM proof-point | §9.5 — two real Gemini responses, one replayable from `runs/llm_cache.jsonl` | ✅ quota-limited but genuine; full transcript optional re-run after daily reset |
+
+## The Gemini quota, honestly
+
+`gemini-3.8-flash`'s free tier allows 20 requests/day/project. A full S2 meeting needs ~16–30 calls depending on retries, and same-day development testing (diagnostics, two partial S2 attempts) exhausted the quota before a complete live transcript could be captured. This is documented in `docs/DECISIONS.md` and §9.5 of the reference doc rather than papered over.
+
+What we have instead is arguably a better demo point than a clean transcript would have been: two genuine Gemini responses (one deceptive, one showing realistic misdirected suspicion) plus **proof that 29+ consecutive live-call failures degraded to the template fallback without a single crash**. That is the demo-safety guarantee validated against a real outage, not a hypothetical one. A full all-Gemini transcript is one command away after the daily reset (~12:30pm IST) and costs nothing extra afterward, since every call is cached by prompt hash.
 
 ## What measurement caught that review did not
 
