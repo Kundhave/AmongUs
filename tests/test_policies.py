@@ -199,7 +199,9 @@ def test_planner_astar_no_risk_ignores_suspicion_and_matches_plain_distance() ->
     def first_hop(planner: str) -> str:
         cfg = replace(SimConfig(), alpha_risk=5.0, planner=planner)
         policy = CrewmatePolicy("red", cfg)
-        policy.memory.suspicion["blue"] = 0.9
+        # Suspicion stays below theta_shadow so step 5 (shadow the sighting directly) never
+        # preempts step 6's A*-routed task trip, isolating the risk-cost/ablation effect.
+        policy.memory.suspicion["blue"] = 0.45
         policy.memory.last_seen["blue"] = ("o2", 9)  # o2 sits on the cheap weapons->shields leg
         phys = _phys("red", Role.CREWMATE, "weapons", tasks=task)
         obs = _obs("red", phys, "weapons", tick=10)
@@ -330,6 +332,47 @@ def test_impostor_hunts_last_seen_crewmate() -> None:
     obs = _obs("black", phys, "cafeteria", tick=10)
     action = policy.decide(obs)
     assert isinstance(action, Move)
+
+
+def test_impostor_hunt_prefers_nearer_crewmate_over_fresher_sighting() -> None:
+    """§11.2 step 4: A* distance decides the target, not sighting recency."""
+    policy = ImpostorPolicy("black", _CFG)
+    # "red" was seen more recently but is far; "green" is stale but adjacent to cafeteria.
+    policy.memory.last_seen["red"] = ("communications", 9)
+    policy.memory.last_seen["green"] = ("weapons", 1)
+    phys = _phys("black", Role.IMPOSTOR, "cafeteria", kill_cooldown=5)
+    obs = _obs("black", phys, "cafeteria", tick=10)
+    action = policy.decide(obs)
+    assert isinstance(action, Move)
+    assert action.to == "weapons"
+
+
+def test_impostor_hunt_prefers_a_lone_crewmate() -> None:
+    """§11.2 step 4: prefer a target believed alone over an equidistant, accompanied one."""
+    policy = ImpostorPolicy("black", _CFG)
+    # weapons and storage are both one hop from cafeteria; "storage" has two known crew (not
+    # alone), "weapons" has exactly one (alone) -> weapons wins despite identical distance.
+    policy.memory.last_seen["red"] = ("weapons", 5)
+    policy.memory.last_seen["blue"] = ("storage", 5)
+    policy.memory.last_seen["green"] = ("storage", 5)
+    phys = _phys("black", Role.IMPOSTOR, "cafeteria", kill_cooldown=5)
+    obs = _obs("black", phys, "cafeteria", tick=10)
+    action = policy.decide(obs)
+    assert isinstance(action, Move)
+    assert action.to == "weapons"
+
+
+def test_impostor_hunt_excludes_known_dead_crewmates() -> None:
+    """§11.2 step 4: a crewmate already known dead is never a hunt target."""
+    policy = ImpostorPolicy("black", _CFG)
+    policy.memory.last_seen["red"] = ("weapons", 5)  # nearest, but known dead
+    policy.memory.last_seen["green"] = ("storage", 5)
+    policy._known_dead = {"red"}
+    phys = _phys("black", Role.IMPOSTOR, "cafeteria", kill_cooldown=5)
+    obs = _obs("black", phys, "cafeteria", tick=10)
+    action = policy.decide(obs)
+    assert isinstance(action, Move)
+    assert action.to == "storage"
 
 
 def _committed_board(agent_id: str, target: str, eta: int = 999) -> ReactorBoard:

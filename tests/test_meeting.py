@@ -180,6 +180,91 @@ def test_impostor_vote_for_partner_is_sanitized_to_skip() -> None:
     assert vote_event.data["target"] is None
 
 
+def test_theta_vote_enforced_for_a_non_template_deliberator() -> None:
+    """§10.4's threshold is a property of the voting rule, not just TemplateDeliberator's."""
+    engine = _build_stub_engine(n_players=4)
+    ids = list(engine.world.agents)
+    target = ids[1]
+    cfg = replace(engine.config, theta_vote=0.5)
+    stmt = {aid: Statement(aid, "x", {target: 0.2}, vote=target) for aid in ids}
+    stmt[target] = Statement(target, "x", {}, vote=None)
+    protocol = MeetingProtocol(cfg, deliberator=_FixedDeliberator(stmt))
+    _fire_meeting(engine, protocol, reporter=ids[0], victim=ids[2])
+
+    for aid in ids:
+        if aid == target:
+            continue
+        vote_event = next(e for e in engine.events if e.type == "VOTE" and e.data["agent"] == aid)
+        assert vote_event.data["target"] is None  # 0.2 suspicion never clears theta_vote=0.5
+
+
+def test_meeting_rounds_is_driven_by_config() -> None:
+    """§3's `meeting_rounds` (not a hardcoded 2) sets the number of speaking rounds."""
+    engine = _build_stub_engine(n_players=4)
+    ids = list(engine.world.agents)
+    cfg = replace(engine.config, meeting_rounds=3)
+    stmt = {aid: Statement(aid, "x", {}, vote=None) for aid in ids}
+    protocol = MeetingProtocol(cfg, deliberator=_FixedDeliberator(stmt))
+    _fire_meeting(engine, protocol, reporter=ids[0], victim=ids[1])
+
+    types = [e.type for e in engine.events]
+    assert types.count("STATEMENT") == len(ids) * 3
+    assert types.count("SUSPICION") == len(ids) * 3
+    assert types.count("VOTE") == len(ids)
+
+
+def test_ejection_note_omits_role_when_reveal_disabled() -> None:
+    """§11 step 5's fix: with `ejection_reveals_role=False`, no role is claimed or fabricated."""
+    engine = _build_stub_engine(n_players=4)
+    ids = list(engine.world.agents)
+    target = ids[1]
+    cfg = replace(engine.config, ejection_reveals_role=False)
+    stmt = {
+        ids[0]: Statement(ids[0], "x", {target: 0.9}, vote=target),
+        ids[1]: Statement(ids[1], "x", {}, vote=None),
+        ids[2]: Statement(ids[2], "x", {target: 0.9}, vote=target),
+        ids[3]: Statement(ids[3], "x", {target: 0.9}, vote=target),
+    }
+    protocol = MeetingProtocol(cfg, deliberator=_FixedDeliberator(stmt))
+    _fire_meeting(engine, protocol, reporter=ids[0], victim=ids[2])
+
+    eject = next(e for e in engine.events if e.type == "EJECT")
+    assert eject.data["was_impostor"] is None
+    survivor_notes = engine.policies[ids[0]].memory.notes
+    meeting_note = next(n for n in survivor_notes if n.kind == "meeting")
+    assert meeting_note.text.endswith("was ejected.")
+    assert "impostor" not in meeting_note.text
+    assert "crewmate" not in meeting_note.text
+
+
+class _RecordingDeliberator:
+    """Records each call's (speaker, round, transcript length seen) and replies with a stub."""
+
+    def __init__(self) -> None:
+        """Start with an empty call log."""
+        self.calls: list[tuple[str, int, int]] = []
+
+    def speak(self, ctx) -> Statement:
+        """Log this call, then return a fixed, harmless Statement."""
+        self.calls.append((ctx.self_id, ctx.round, len(ctx.transcript)))
+        return Statement(speaker=ctx.self_id, text=f"call from {ctx.self_id}", suspicion={}, vote=None)
+
+
+def test_round1_speakers_see_earlier_round1_statements() -> None:
+    """§9.2 block 4, §10.1: speaker N of round 1 sees speakers 1..N-1's round-1 statements."""
+    engine = _build_stub_engine(n_players=4)
+    ids = list(engine.world.agents)
+    recorder = _RecordingDeliberator()
+    protocol = MeetingProtocol(engine.config, deliberator=recorder)
+    _fire_meeting(engine, protocol, reporter=ids[0], victim=ids[1])
+
+    round1_lengths = [length for _speaker, round_idx, length in recorder.calls if round_idx == 1]
+    assert len(round1_lengths) == len(ids)
+    # Each successive round-1 speaker sees one more statement than the last (0, 1, 2, 3, ...):
+    # with the pre-fix frozen transcript every entry here would have been 0.
+    assert round1_lengths == list(range(len(ids)))
+
+
 def test_llm_parse_fail_never_crashes_and_falls_back() -> None:
     """A raising Deliberator logs LLM_PARSE_FAIL and still produces a valid Statement."""
     engine = _build_stub_engine(n_players=4)
@@ -222,6 +307,37 @@ def test_20_seeds_reach_terminal_state_offline(seed: int) -> None:
     assert engine.world.phase.value == "over"
     winner = engine.world.winner
     assert winner is None or winner in (Role.CREWMATE, Role.IMPOSTOR)
+
+
+def _max_movement_free_run(engine: Engine) -> int:
+    """Longest run of consecutive live ticks with no MOVE/ARRIVE event anywhere in the log.
+
+    The world clock only advances during play (meetings pause it, §10), so scanning every
+    tick number from 1 to the game's final tick covers the whole live game, movement events
+    included, with no separate meeting bookkeeping required.
+    """
+    moved_ticks = {e.tick for e in engine.events if e.type in ("MOVE", "ARRIVE")}
+    longest = current = 0
+    for tick in range(1, engine.world.tick + 1):
+        if tick in moved_ticks:
+            current = 0
+        else:
+            current += 1
+            longest = max(longest, current)
+    return longest
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_no_report_livelock_at_default_config(seed: int) -> None:
+    """Regression for the §11.1 step 1 re-report livelock: no 15+ tick movement-free run.
+
+    Before the §7 death_notices fix, a crewmate standing on an already-reported body (a
+    common outcome once meetings respawn everyone in cafeteria) returned Report() forever,
+    which the engine silently rejects every tick, paralysing the whole crew.
+    """
+    engine = _build_full_engine(seed, max_ticks=SimConfig().max_ticks)
+    engine.run(engine.config.max_ticks)
+    assert _max_movement_free_run(engine) < 15
 
 
 def test_determinism_with_policies_and_meetings() -> None:
