@@ -247,7 +247,8 @@ class _RecordingDeliberator:
     def speak(self, ctx) -> Statement:
         """Log this call, then return a fixed, harmless Statement."""
         self.calls.append((ctx.self_id, ctx.round, len(ctx.transcript)))
-        return Statement(speaker=ctx.self_id, text=f"call from {ctx.self_id}", suspicion={}, vote=None)
+        text = f"call from {ctx.self_id}"
+        return Statement(speaker=ctx.self_id, text=text, suspicion={}, vote=None)
 
 
 def test_round1_speakers_see_earlier_round1_statements() -> None:
@@ -338,6 +339,26 @@ def test_no_report_livelock_at_default_config(seed: int) -> None:
     engine = _build_full_engine(seed, max_ticks=SimConfig().max_ticks)
     engine.run(engine.config.max_ticks)
     assert _max_movement_free_run(engine) < 15
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_no_impostor_statement_ever_confesses_a_kill(seed: int) -> None:
+    """Permanent regression: an impostor's public statement never contains "I killed" (§9.4).
+
+    Runs the full offline (template) pipeline end-to-end and inspects every STATEMENT event
+    against the role each speaker actually held at that point in the game.
+    """
+    engine = _build_full_engine(seed, max_ticks=SimConfig().max_ticks)
+    impostor_ids = {
+        aid for aid, agent in engine.world.agents.items() if agent.role is Role.IMPOSTOR
+    }
+    engine.run(engine.config.max_ticks)
+    for event in engine.events:
+        if event.type != "STATEMENT":
+            continue
+        if event.data["agent"] in impostor_ids:
+            assert "I killed" not in event.data["text"]
+            assert "I vented" not in event.data["text"]
 
 
 def test_determinism_with_policies_and_meetings() -> None:

@@ -51,6 +51,6 @@ class SimConfig:
     deadlock_protocol: bool = True
     planner: str = "astar"
     deliberator: str = "gemini"
-    llm_model: str = "gemini-2.0-flash"
+    llm_model: str = "gemini-3.8-flash"
     llm_cache: str = "runs/llm_cache.jsonl"
     verbosity: int = 1

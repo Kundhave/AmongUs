@@ -7,6 +7,8 @@ from amongus.llm import MeetingContext
 from amongus.types import Note, Role
 
 _KIND_PRIORITY = ("kill", "body", "saw", "alone")
+_IMPOSTOR_STATEMENT_KINDS = ("saw", "alone")  # never kill/vent/body: those confess (§12.2)
+_NEUTRAL_LOCATION_CLAIM = "I was keeping to myself and didn't see anything worth reporting."
 _KILL_RE = re.compile(r"I saw (\S+) kill (\S+) in")
 _VENT_RE = re.compile(r"I saw (\S+) climb out of a vent")
 _BODY_RE = re.compile(r"I found (\S+)'s body")
@@ -28,7 +30,7 @@ def _extract_names(saw_text: str) -> list[str]:
     return [name.strip() for name in joined.split(", ") if name.strip()]
 
 
-def _pick_statement(notes: list[Note]) -> str:
+def _pick_crewmate_statement(notes: list[Note]) -> str:
     """Render the highest-priority note (kill > body > saw > alone) as speech."""
     by_kind: dict[str, Note] = {}
     for note in notes:
@@ -37,6 +39,19 @@ def _pick_statement(notes: list[Note]) -> str:
         if kind in by_kind:
             return by_kind[kind].text
     return "I have nothing to report."
+
+
+def _pick_impostor_statement(notes: list[Note]) -> str:
+    """An impostor claims a location (§12.2): never its own kill/vent/body note out loud.
+
+    Even a witnessed kill/vent/body note is withheld here — the deliberately simple
+    template baseline renders only `saw`/`alone` location claims for an impostor, so it
+    can never accidentally voice a note whose text confesses its own crime (§9.4).
+    """
+    candidates = [n for n in notes if n.kind in _IMPOSTOR_STATEMENT_KINDS]
+    if not candidates:
+        return _NEUTRAL_LOCATION_CLAIM
+    return max(candidates, key=lambda n: n.tick).text
 
 
 def _crewmate_suspicion(ctx: MeetingContext) -> dict[str, float]:
@@ -95,10 +110,11 @@ class TemplateDeliberator:
 
     def speak(self, ctx: MeetingContext) -> Statement:
         """Produce a fixed-template Statement: highest-priority note, rule-based suspicion."""
-        text = _pick_statement(ctx.notes)
         if ctx.role is Role.IMPOSTOR:
+            text = _pick_impostor_statement(ctx.notes)
             suspicion = _impostor_suspicion(ctx)
         else:
+            text = _pick_crewmate_statement(ctx.notes)
             suspicion = _crewmate_suspicion(ctx)
         vote = None
         if suspicion:

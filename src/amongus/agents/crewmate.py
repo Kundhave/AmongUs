@@ -218,16 +218,28 @@ class CrewmatePolicy:
         return make_cost_fn(self.memory.suspicion, self.memory.last_seen, tick, self.config)
 
     def _shadow(self, obs: Observation, triggers: set[str]) -> Action | None:
-        """Move toward the most-suspicious tracked agent if its suspicion clears theta_shadow."""
+        """Move toward the most-suspicious recently-tracked agent, if it clears theta_shadow.
+
+        Only a sighting within `last_seen_decay` (§8.2's own freshness window) counts: a
+        stale sighting of an agent who has since been ejected or killed would otherwise
+        strand this policy "shadowing" a room forever, waiting for someone who can never
+        return — the exact standoff §13's deadlock protocol has to spend a full
+        `deadlock_window` unwinding. Ties break on agent id, never dict iteration order.
+        """
         if obs.tick < self.shadow_disabled_until or not self.memory.suspicion:
             return None
-        suspect = max(self.memory.suspicion, key=lambda a: self.memory.suspicion[a])
-        if self.memory.suspicion[suspect] < self.config.theta_shadow:
+        fresh = {
+            agent: score
+            for agent, score in self.memory.suspicion.items()
+            if agent in self.memory.last_seen
+            and obs.tick - self.memory.last_seen[agent][1] <= self.config.last_seen_decay
+        }
+        if not fresh:
             return None
-        last = self.memory.last_seen.get(suspect)
-        if last is None:
+        suspect = max(fresh, key=lambda a: (fresh[a], a))
+        if fresh[suspect] < self.config.theta_shadow:
             return None
-        target_room, _seen_tick = last
+        target_room, _seen_tick = self.memory.last_seen[suspect]
         if obs.room == target_room:
             return Wait()
         next_hop = self.memory.route(
