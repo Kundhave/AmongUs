@@ -4,7 +4,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Protocol
@@ -12,6 +14,22 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 _JSON_MIME = "application/json"
+
+# Fatal: retrying burns wall-clock for an error that will never succeed (bad model name,
+# bad/missing credentials). Everything else — including 503/UNAVAILABLE/429/RESOURCE_EXHAUSTED
+# and any error text we don't recognise — is worth a retry.
+_FATAL_RE = re.compile(
+    r"\b(404|NOT_FOUND|401|403|UNAUTHENTICATED|PERMISSION_DENIED|invalid[ _-]?api[ _-]?key)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Classify a transport error: fatal codes never retry; unrecognised ones do (safe default)."""
+    text = str(exc)
+    if _FATAL_RE.search(text):
+        return False
+    return True
 
 
 class _GenAIClient(Protocol):

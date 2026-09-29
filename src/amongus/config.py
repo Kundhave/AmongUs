@@ -53,4 +53,7 @@ class SimConfig:
     deliberator: str = "gemini"
     llm_model: str = "gemini-3.8-flash"
     llm_cache: str = "runs/llm_cache.jsonl"
+    llm_max_attempts: int = 4
+    llm_backoff_base: float = 1.5
+    llm_max_workers: int = 4
     verbosity: int = 1
