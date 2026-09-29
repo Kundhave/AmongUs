@@ -18,10 +18,12 @@ Parallel only where owned files do not overlap: **M1a ∥ M1b**, and **M5 UI ∥
 
 | Needed for | Artefact | Ready at |
 |---|---|---|
-| P1 Algorithmic Modeling | `runs/bench/search.csv` + printed table | M1a |
-| P1 PEAS + Environment | `docs/PEAS.md` | M5 — **pull forward to M1 if P1 is due first** |
-| P2 Interaction | S3 renegotiation log, S4 deadlock log | M4 |
+| P1 PEAS + Environment + algorithmic rationale | `docs/PROJECT_REFERENCE.md` §5–§8 | ✅ ready now |
+| P1 Algorithmic Modeling numbers | `runs/bench/search.csv` + printed table | M1a — fills the TBDs in §8.4 |
+| P2 Interaction | S3 renegotiation log, S4 deadlock log | M4 — fills §16 TBDs |
 | P2 Demo | `viewer.html` + `run_demo.py` + live shock keys | M5 |
+
+`docs/PEAS.md` is no longer a separate deliverable — that content lives in `docs/PROJECT_REFERENCE.md` §5–§7, written at M0 so the team can start on Presentation 1 immediately. Every unmeasured figure in it is marked **TBD** with the command that produces it; fill them in as milestones close.
 
 ## Notes
 

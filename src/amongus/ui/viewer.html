@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Among Us — Replay Viewer</title>
+<style>
+  /* ---------- Theme tokens ---------- */
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --panel-2:#eceef2; --text:#161a1f; --muted:#5a6270;
+    --border:#d7dae0; --accent:#3b6fe0; --danger:#d9455f; --ok:#2ea36b; --warn:#c9832a;
+    --map-bg:#e9ecf3; --room-fill:#ffffff; --room-stroke:#8b93a3; --edge:#9aa2b1; --vent:#b98bd6;
+    --door:#d9455f; --shadow: 0 1px 3px rgba(20,25,35,0.12);
+  }
+  html[data-theme="dark"]{
+    --bg:#12141a; --panel:#1b1e27; --panel-2:#20232d; --text:#e7e9ee; --muted:#9aa1b1;
+    --border:#2c303c; --accent:#6d93ff; --danger:#ff6b81; --ok:#3ddc97; --warn:#ffb15c;
+    --map-bg:#0e1016; --room-fill:#20232d; --room-stroke:#454b5c; --edge:#454b5c; --vent:#c9a1ea;
+    --door:#ff6b81; --shadow: 0 1px 6px rgba(0,0,0,0.5);
+  }
+  @media (prefers-color-scheme: dark){
+    html[data-theme="system"]{
+      --bg:#12141a; --panel:#1b1e27; --panel-2:#20232d; --text:#e7e9ee; --muted:#9aa1b1;
+      --border:#2c303c; --accent:#6d93ff; --danger:#ff6b81; --ok:#3ddc97; --warn:#ffb15c;
+      --map-bg:#0e1016; --room-fill:#20232d; --room-stroke:#454b5c; --edge:#454b5c; --vent:#c9a1ea;
+      --door:#ff6b81; --shadow: 0 1px 6px rgba(0,0,0,0.5);
+    }
+  }
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; width:100%; overflow-x:hidden; background:var(--bg); color:var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  /* body is a bounded-height flex column so #main (and inside it, the event
+     feed) can actually scroll internally instead of the whole page growing
+     and scrolling past the map/header during a long replay. */
+  html,body{ height:100%; }
+  body{ min-height:100vh; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  h1,h2,h3{ margin:0 0 .4em 0; }
+  button, select, input[type=range]{ font: inherit; color: inherit; }
+  button{ background:var(--panel-2); border:1px solid var(--border); border-radius:6px; padding:.35em .7em;
+    cursor:pointer; }
+  button:hover{ filter:brightness(1.08); }
+  button.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+
+  #topbar{ display:flex; align-items:center; gap:.75em; padding:.6em 1em; background:var(--panel);
+    border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  #topbar h1{ font-size:1.05em; white-space:nowrap; }
+  #fileControls{ display:flex; gap:.5em; align-items:center; flex-wrap:wrap; }
+  #themeToggle{ margin-left:auto; }
+  #logName{ color:var(--muted); font-size:.85em; max-width:20em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #malformedBadge{ display:none; background:var(--warn); color:#231a03; border-radius:5px; padding:.15em .5em; font-size:.8em; }
+
+  #headerStats{ display:flex; gap:1.4em; flex-wrap:wrap; padding:.5em 1em; background:var(--panel-2);
+    border-bottom:1px solid var(--border); font-size:.92em; }
+  .stat{ display:flex; flex-direction:column; gap:.15em; min-width:6.5em; }
+  .stat .label{ color:var(--muted); font-size:.75em; text-transform:uppercase; letter-spacing:.04em; }
+  .stat .value{ font-weight:600; }
+  #taskBarOuter{ width:12em; height:.7em; background:var(--panel); border:1px solid var(--border); border-radius:4px; overflow:hidden; }
+  #taskBarInner{ height:100%; width:0%; background:var(--ok); transition:width .15s; }
+
+  #topbar, #headerStats{ flex:0 0 auto; }
+  #main{ display:flex; gap:0; align-items:stretch; flex:1 1 auto; min-height:0; overflow:hidden; }
+  #leftCol{ flex:1 1 60%; min-width:0; min-height:0; display:flex; flex-direction:column; overflow-y:auto; }
+  #rightCol{ flex:0 0 340px; max-width:38vw; display:flex; flex-direction:column; border-left:1px solid var(--border);
+    background:var(--panel); min-width:220px; min-height:0; }
+
+  #mapWrap{ position:relative; background:var(--map-bg); }
+  #mapCanvas{ display:block; width:100%; height:auto; }
+  #dropHint{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:.6em; color:var(--muted); text-align:center; padding:2em; }
+  #dropHint.hidden{ display:none; }
+  #dropHint .big{ font-size:1.1em; color:var(--text); }
+
+  #mapDim{ position:absolute; inset:0; background:rgba(0,0,0,0.55); opacity:0; pointer-events:none;
+    transition:opacity .25s; }
+  #mapDim.on{ opacity:1; }
+
+  #transport{ display:flex; align-items:center; gap:.6em; padding:.6em 1em; background:var(--panel);
+    border-top:1px solid var(--border); flex-wrap:wrap; }
+  #scrub{ flex:1 1 200px; min-width:120px; }
+  .speedGroup{ display:flex; gap:.25em; }
+  #tickLabel{ min-width:8em; text-align:right; color:var(--muted); font-variant-numeric: tabular-nums; }
+
+  #feedHead{ flex:0 0 auto; padding:.6em 1em; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;}
+  #feed{ flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; padding:.3em 0; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size:.78em; }
+  .feedLine{ padding:.15em .8em; white-space:pre-wrap; word-break:break-word; cursor:pointer; border-left:3px solid transparent; }
+  .feedLine:hover{ background:var(--panel-2); }
+  .feedLine.current{ background:var(--panel-2); border-left-color:var(--accent); font-weight:600; }
+  .feedLine.future{ display:none; }
+  .feedLine .t{ color:var(--muted); }
+  .feedLine.type-KILL{ color:var(--danger); }
+  .feedLine.type-EJECT{ color:var(--danger); }
+  .feedLine.type-MEETING_START{ color:var(--accent); }
+  .feedLine.type-SABOTAGE{ color:var(--warn); }
+  .feedLine.type-GAME_OVER{ color:var(--ok); font-weight:700; }
+  .feedLine.malformedLine{ color:var(--warn); font-style:italic; }
+
+  #legend{ display:flex; flex-wrap:wrap; gap:.5em; padding:.5em 1em; border-top:1px solid var(--border); font-size:.78em; }
+  .legendItem{ display:flex; align-items:center; gap:.35em; }
+  .swatch{ width:.9em; height:.9em; border-radius:50%; display:inline-block; border:1.5px solid rgba(0,0,0,.35); }
+
+  /* ---------- Meeting overlay ---------- */
+  #meetingOverlay{ position:fixed; inset:0; background:rgba(10,12,18,0.72); display:none;
+    align-items:center; justify-content:center; z-index:50; padding:2em 1em; }
+  #meetingOverlay.show{ display:flex; }
+  #meetingPanel{ background:var(--panel); color:var(--text); border-radius:14px; box-shadow:0 10px 40px rgba(0,0,0,.5);
+    width:min(720px, 92vw); max-height:88vh; overflow-y:auto; overflow-x:hidden; padding:1.4em 1.6em; }
+  #meetingPanel h2{ display:flex; align-items:center; gap:.6em; }
+  #meetingReason{ font-size:.7em; color:var(--muted); font-weight:400; text-transform:uppercase; letter-spacing:.05em; }
+  .meetingSection{ margin-top:1.1em; }
+  .meetingSection > h3{ font-size:.8em; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:.5em; }
+  .roundLabel{ font-size:.72em; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:.8em 0 .3em; }
+  .bubble{ display:flex; gap:.6em; margin:.35em 0; align-items:flex-start; animation: bubbleIn .25s ease-out; }
+  @keyframes bubbleIn{ from{ opacity:0; transform:translateY(4px);} to{ opacity:1; transform:none; } }
+  .avatar{ width:1.9em; height:1.9em; border-radius:50%; flex:0 0 auto; border:1.5px solid rgba(0,0,0,.35);
+    display:flex; align-items:center; justify-content:center; font-size:.68em; font-weight:700; color:#0006; }
+  .bubbleBody{ background:var(--panel-2); border-radius:10px; padding:.45em .7em; max-width:88%; }
+  .bubbleBody .who{ font-size:.72em; font-weight:700; text-transform:capitalize; margin-bottom:.15em; }
+  .bubbleBody .txt{ font-size:.88em; line-height:1.35; }
+  .susRow{ margin:.4em 0; }
+  .susRow .susAgent{ font-size:.75em; font-weight:600; text-transform:capitalize; margin-bottom:.2em; }
+  .susBarTrack{ display:flex; align-items:center; gap:.4em; margin:.1em 0; }
+  .susBarLabel{ width:5.2em; font-size:.72em; text-transform:capitalize; flex:0 0 auto; }
+  .susBarOuter{ flex:1 1 auto; background:var(--panel-2); border-radius:4px; height:.6em; overflow:hidden; display:block; }
+  .susBarInner{ display:block; height:100%; background:var(--danger); }
+  .susBarVal{ width:2.6em; text-align:right; font-size:.7em; color:var(--muted); }
+  .tallyList{ display:flex; flex-wrap:wrap; gap:.5em; margin:.4em 0 .8em; }
+  .tallyChip{ background:var(--panel-2); border-radius:6px; padding:.25em .55em; font-size:.78em; }
+  .resultLine{ font-size:1em; font-weight:700; padding:.6em .8em; border-radius:8px; }
+  .resultLine.ejected-impostor{ background:rgba(46,163,107,.18); color:var(--ok); }
+  .resultLine.ejected-crew{ background:rgba(217,69,95,.18); color:var(--danger); }
+  .resultLine.no-eject{ background:var(--panel-2); color:var(--muted); }
+  #meetingCloseHint{ margin-top:1em; font-size:.72em; color:var(--muted); text-align:right; }
+
+  #emptyState, #corruptState{ padding:3em 1em; text-align:center; color:var(--muted); }
+
+  @media (max-width: 820px){
+    #main{ flex-direction:column; }
+    #rightCol{ max-width:none; border-left:none; border-top:1px solid var(--border); max-height:40vh; }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>AI Among Us — Replay Viewer</h1>
+  <div id="fileControls">
+    <button id="pickFileBtn" type="button">Load log…</button>
+    <input type="file" id="fileInput" accept=".jsonl,.json,.log,.txt" style="display:none">
+    <span id="logName">no log loaded</span>
+    <span id="malformedBadge"></span>
+  </div>
+  <label id="revealWrap" style="display:flex;align-items:center;gap:.35em;font-size:.85em;">
+    <input type="checkbox" id="revealToggle"> Reveal impostors
+  </label>
+  <button id="themeToggle" type="button">Theme: System</button>
+</div>
+
+<div id="headerStats">
+  <div class="stat"><span class="label">Tick</span><span class="value" id="statTick">0 / 0</span></div>
+  <div class="stat"><span class="label">Task progress</span>
+    <div id="taskBarOuter"><div id="taskBarInner"></div></div>
+    <span class="value" id="statTaskText" style="font-size:.75em;">n/a</span>
+  </div>
+  <div class="stat"><span class="label">Alive</span><span class="value" id="statAlive">8 / 8</span></div>
+  <div class="stat"><span class="label">Sabotage</span><span class="value" id="statSabotage">none</span></div>
+  <div class="stat"><span class="label">Meetings</span><span class="value" id="statMeetings">0</span></div>
+</div>
+
+<div id="main">
+  <div id="leftCol">
+    <div id="mapWrap">
+      <canvas id="mapCanvas" width="900" height="500"></canvas>
+      <div id="mapDim"></div>
+      <div id="dropHint">
+        <div class="big">Drop an <code>events.jsonl</code> file here, or use “Load log…”.</div>
+        <div>You can also open this file with <code>?log=path/to/events.jsonl</code>.</div>
+      </div>
+    </div>
+    <div id="legend"></div>
+    <div id="transport">
+      <button id="stepBackBtn" type="button" title="Step back">⏮</button>
+      <button id="playBtn" type="button" title="Play/Pause">▶</button>
+      <button id="stepFwdBtn" type="button" title="Step forward">⏭</button>
+      <input type="range" id="scrub" min="0" max="0" value="0" step="1">
+      <span id="tickLabel">t = 0</span>
+      <div class="speedGroup">
+        <button data-speed="1" class="speedBtn active" type="button">1×</button>
+        <button data-speed="2" class="speedBtn" type="button">2×</button>
+        <button data-speed="4" class="speedBtn" type="button">4×</button>
+      </div>
+    </div>
+  </div>
+  <div id="rightCol">
+    <div id="feedHead"><strong>Event feed</strong><span id="feedCount" style="color:var(--muted);font-size:.8em;"></span></div>
+    <div id="feed"><div id="emptyState">No log loaded yet.</div></div>
+  </div>
+</div>
+
+<div id="meetingOverlay">
+  <div id="meetingPanel">
+    <h2>Meeting #<span id="meetingNum">?</span> <span id="meetingReason"></span></h2>
+    <div class="meetingSection">
+      <h3>Transcript</h3>
+      <div id="meetingTranscript"></div>
+    </div>
+    <div class="meetingSection" id="meetingSuspicionSection">
+      <h3>Suspicion</h3>
+      <div id="meetingSuspicion"></div>
+    </div>
+    <div class="meetingSection" id="meetingVoteSection">
+      <h3>Vote</h3>
+      <div class="tallyList" id="meetingTally"></div>
+      <div id="meetingResult"></div>
+    </div>
+    <div id="meetingCloseHint">Scrub forward to close this meeting.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* =========================================================================
+   §5 Map data — embedded verbatim from docs/SPEC.md so the viewer needs
+   nothing from the simulator.
+   ========================================================================= */
+const ROOMS = {
+  upper_engine: [1.0, 5.0], reactor: [0.0, 3.0], security: [2.0, 3.0],
+  lower_engine: [1.0, 1.0], medbay: [4.0, 4.0], cafeteria: [6.0, 5.0],
+  weapons: [9.0, 5.0], o2: [8.0, 4.0], navigation: [11.0, 3.0],
+  shields: [9.0, 1.0], communications: [7.0, 0.0], storage: [6.0, 1.0],
+  admin: [7.0, 2.5], electrical: [4.0, 1.5]
+};
+const EDGES = [
+  ["cafeteria","weapons",3], ["cafeteria","medbay",3], ["cafeteria","upper_engine",5],
+  ["cafeteria","storage",4], ["cafeteria","admin",4], ["weapons","o2",2],
+  ["weapons","navigation",4], ["o2","navigation",3], ["o2","shields",4],
+  ["navigation","shields",4], ["shields","communications",2], ["shields","storage",4],
+  ["communications","storage",3], ["storage","admin",2], ["storage","electrical",4],
+  ["storage","lower_engine",6], ["electrical","lower_engine",5], ["lower_engine","security",3],
+  ["lower_engine","reactor",3], ["lower_engine","upper_engine",5], ["security","reactor",2],
+  ["security","upper_engine",3], ["reactor","upper_engine",3], ["upper_engine","medbay",4]
+];
+const VENT_PAIRS = [
+  ["reactor","upper_engine"], ["reactor","lower_engine"], ["electrical","medbay"],
+  ["electrical","security"], ["medbay","security"], ["cafeteria","admin"],
+  ["navigation","weapons"], ["navigation","shields"]
+];
+
+const AGENT_IDS = ["red","blue","green","pink","orange","yellow","black","white"];
+const AGENT_COLORS = {
+  red:    { fill:"#e6194b", stroke:"rgba(0,0,0,.4)" },
+  blue:   { fill:"#3b6fe0", stroke:"rgba(0,0,0,.4)" },
+  green:  { fill:"#2ea36b", stroke:"rgba(0,0,0,.4)" },
+  pink:   { fill:"#ec6fb0", stroke:"rgba(0,0,0,.4)" },
+  orange: { fill:"#f39c12", stroke:"rgba(0,0,0,.4)" },
+  yellow: { fill:"#e3d21a", stroke:"rgba(0,0,0,.4)" },
+  black:  { fill:"#2a2a2a", stroke:"#e7e7e7" },   // light ring so it reads on dark bg
+  white:  { fill:"#f2f2f2", stroke:"#2a2a2a" }    // dark ring so it reads on light bg
+};
+
+/* =========================================================================
+   Robust log parsing — never throw. Malformed lines are counted and
+   skipped, unknown fields default silently.
+   ========================================================================= */
+function parseLog(text){
+  const lines = text.split(/\r?\n/);
+  const events = [];
+  let malformed = 0;
+  for (let i = 0; i < lines.length; i++){
+    const raw = lines[i];
+    if (raw.trim() === "") continue;
+    try{
+      const obj = JSON.parse(raw);
+      if (obj === null || typeof obj !== "object" || Array.isArray(obj)) throw new Error("not an object");
+      if (typeof obj.type !== "string" || obj.type === "") throw new Error("missing type");
+      let t = Number(obj.t);
+      if (!Number.isFinite(t)) t = 0;
+      obj.t = t;
+      obj.__line = i + 1;
+      events.push(obj);
+    }catch(e){
+      malformed++;
+    }
+  }
+  // stable sort by tick; preserves original (already-chronological) order for ties
+  events.sort((a,b)=> a.t - b.t);
+  return { events, malformed, totalLines: lines.filter(l=>l.trim()!=="").length };
+}
+
+/* Defensive field getters: never assume a key exists. */
+function pick(evt, keys, fallback){
+  for (const k of keys){ if (evt[k] !== undefined && evt[k] !== null) return evt[k]; }
+  return fallback;
+}
+function agentOf(evt){ return pick(evt, ["agent","id","color","name"], null); }
+function roomOf(evt){ return pick(evt, ["room","location"], null); }
+function edgeKey(a,b){ return a < b ? a+"|"+b : b+"|"+a; }
+function neighborsOf(room){
+  const out = [];
+  for (const [a,b,w] of EDGES){
+    if (a === room) out.push(b);
+    else if (b === room) out.push(a);
+  }
+  return out;
+}
+
+/* =========================================================================
+   State model + event handlers (dispatch table covers every §14.1 type).
+   ========================================================================= */
+function freshState(){
+  const positions = {}, alive = {};
+  for (const a of AGENT_IDS){ positions[a] = "cafeteria"; alive[a] = true; }
+  return {
+    positions, transits: {}, alive,
+    bodies: [],           // {victim, room, t, reported}
+    roles: null,           // {impostors:[...]}
+    sabotage: null,        // {kind, panels, panelsDone, room, edges, timer, startTick, startTimer}
+    closedEdges: new Set(),
+    taskBar: null,         // {done,total}
+    meeting: null,         // current/last meeting object
+    lastReplan: null,      // {agent, reason, expanded, path, t}
+    progressStall: null,
+    deadlockBrokenAt: null,
+    lastShock: null,
+    llmParseFails: 0,
+    gameOver: null,
+    meetingCount: 0
+  };
+}
+
+function cloneState(s){
+  return {
+    positions: Object.assign({}, s.positions),
+    transits: JSON.parse(JSON.stringify(s.transits)),
+    alive: Object.assign({}, s.alive),
+    bodies: s.bodies.map(b => Object.assign({}, b)),
+    roles: s.roles ? JSON.parse(JSON.stringify(s.roles)) : null,
+    sabotage: s.sabotage ? JSON.parse(JSON.stringify(s.sabotage)) : null,
+    closedEdges: new Set(s.closedEdges),
+    taskBar: s.taskBar ? Object.assign({}, s.taskBar) : null,
+    meeting: s.meeting ? JSON.parse(JSON.stringify(s.meeting)) : null,
+    lastReplan: s.lastReplan ? Object.assign({}, s.lastReplan) : null,
+    progressStall: s.progressStall ? Object.assign({}, s.progressStall) : null,
+    deadlockBrokenAt: s.deadlockBrokenAt,
+    lastShock: s.lastShock ? Object.assign({}, s.lastShock) : null,
+    llmParseFails: s.llmParseFails,
+    gameOver: s.gameOver ? Object.assign({}, s.gameOver) : null,
+    meetingCount: s.meetingCount
+  };
+}
+
+function normalizeTaskBar(v){
+  if (v == null) return null;
+  if (Array.isArray(v) && v.length >= 2) return { done: Number(v[0])||0, total: Number(v[1])||0 };
+  if (typeof v === "object") {
+    const done = Number(pick(v, ["done","completed","progress"], 0)) || 0;
+    const total = Number(pick(v, ["total","of","max"], 0)) || 0;
+    return { done, total };
+  }
+  if (typeof v === "number" && v >= 0 && v <= 1) return { done: v, total: 1 };
+  return null;
+}
+
+function closeEdgesTouching(state, room){
+  for (const n of neighborsOf(room)) state.closedEdges.add(edgeKey(room, n));
+}
+
+/* Every handler mutates `state` in place. Any throw is caught by the caller
+   (applyEvent) so one bad event never kills the replay. */
+const EVENT_HANDLERS = {
+  SPAWN(state, evt){
+    const a = agentOf(evt); if (!a) return;
+    state.positions[a] = roomOf(evt) || "cafeteria";
+    state.alive[a] = true;
+  },
+  ROLES(state, evt){
+    let impostors = evt.impostors || evt.roles_impostors || null;
+    if (!impostors && evt.roles && typeof evt.roles === "object"){
+      impostors = Object.keys(evt.roles).filter(k => /impost/i.test(String(evt.roles[k])));
+    }
+    state.roles = { impostors: Array.isArray(impostors) ? impostors : [] };
+  },
+  MOVE(state, evt){
+    const a = agentOf(evt); if (!a) return;
+    const from = pick(evt, ["from","src","source"], state.positions[a] || null);
+    const to = pick(evt, ["to","dst","dest","target"], null);
+    if (!to) return;
+    let eta = Number(pick(evt, ["eta","weight","w","remaining"], 1));
+    if (!Number.isFinite(eta) || eta < 0) eta = 1;
+    state.transits[a] = { from, to, startTick: evt.t, eta };
+    state.positions[a] = null;
+  },
+  ARRIVE(state, evt){
+    const a = agentOf(evt); if (!a) return;
+    const tr = state.transits[a];
+    const room = roomOf(evt) || (tr ? tr.to : null);
+    if (room) state.positions[a] = room;
+    delete state.transits[a];
+  },
+  VENT(state, evt){
+    const a = agentOf(evt); if (!a) return;
+    const to = pick(evt, ["to","dst","dest"], null);
+    if (to) state.positions[a] = to;
+    delete state.transits[a];
+  },
+  KILL(state, evt){
+    const victim = pick(evt, ["victim","target"], null);
+    const room = roomOf(evt) || (victim ? state.positions[victim] : null);
+    if (victim){
+      state.alive[victim] = false;
+      state.positions[victim] = null;
+      delete state.transits[victim];
+      state.bodies.push({ victim, room: room || "?", t: evt.t, reported: false });
+    }
+  },
+  BODY_SEEN(){ /* informational only; surfaced via the feed */ },
+  REPORT(state, evt){
+    const victim = pick(evt, ["victim","body"], null);
+    for (const b of state.bodies){
+      if (!b.reported && (victim ? b.victim === victim : true)){ b.reported = true; break; }
+    }
+  },
+  BUTTON(){ /* informational; MEETING_START drives the overlay */ },
+  MEETING_START(state, evt){
+    state.meeting = {
+      number: pick(evt, ["meeting","number"], state.meetingCount + 1),
+      reason: pick(evt, ["reason"], ""),
+      room: roomOf(evt),
+      startTick: evt.t,
+      statements: [], suspicion: [], votes: [], eject: null, active: true
+    };
+    state.meetingCount++;
+  },
+  STATEMENT(state, evt){
+    if (!state.meeting) EVENT_HANDLERS.MEETING_START(state, evt);
+    state.meeting.statements.push({
+      round: Number(pick(evt, ["round"], 1)) || 1,
+      agent: agentOf(evt) || "?",
+      text: pick(evt, ["text","statement"], "")
+    });
+  },
+  SUSPICION(state, evt){
+    if (!state.meeting) EVENT_HANDLERS.MEETING_START(state, evt);
+    state.meeting.suspicion.push({
+      round: Number(pick(evt, ["round"], 1)) || 1,
+      agent: agentOf(evt) || "?",
+      scores: pick(evt, ["scores"], {}) || {}
+    });
+  },
+  VOTE(state, evt){
+    if (!state.meeting) EVENT_HANDLERS.MEETING_START(state, evt);
+    state.meeting.votes.push({ agent: agentOf(evt) || "?", target: pick(evt, ["target","vote"], null) });
+  },
+  EJECT(state, evt){
+    if (!state.meeting) EVENT_HANDLERS.MEETING_START(state, evt);
+    const agent = pick(evt, ["target","agent"], null);
+    state.meeting.eject = {
+      agent, was_impostor: !!pick(evt, ["was_impostor","impostor"], false),
+      tally: pick(evt, ["tally","votes"], null)
+    };
+    state.meeting.active = false;
+    if (agent){ state.alive[agent] = false; state.positions[agent] = null; }
+    // Engine step 10: respawn all alive agents to cafeteria, clear transits/doors, mark bodies reported.
+    for (const a of AGENT_IDS){ if (state.alive[a] !== false) state.positions[a] = "cafeteria"; }
+    state.transits = {};
+    state.closedEdges = new Set();
+    for (const b of state.bodies) b.reported = true;
+  },
+  SABOTAGE(state, evt){
+    const kind = pick(evt, ["kind"], "unknown");
+    const panels = pick(evt, ["panels"], []) || [];
+    let timer = Number(pick(evt, ["timer"], 0)); if (!Number.isFinite(timer)) timer = 0;
+    state.sabotage = {
+      kind, panels: Array.isArray(panels) ? panels : [],
+      panelsDone: [], room: roomOf(evt), timer, startTick: evt.t, startTimer: timer
+    };
+    const edges = pick(evt, ["edges"], null);
+    if (Array.isArray(edges)){
+      for (const e of edges){ if (Array.isArray(e) && e.length >= 2) state.closedEdges.add(edgeKey(e[0], e[1])); }
+    } else if (kind === "doors" && roomOf(evt)){
+      closeEdgesTouching(state, roomOf(evt));
+    }
+  },
+  BID(){ /* feed-only: {agent, costs:{room:int}} — informational bid, no persistent visual state */ },
+  COMMIT(){ /* feed-only: {agent, target, eta} */ },
+  REVOKE(){ /* feed-only: {agent, target, eta, grace, backup, backup_eta} */ },
+  PANEL_DONE(state, evt){
+    if (state.sabotage){
+      const room = roomOf(evt);
+      if (room && !state.sabotage.panelsDone.includes(room)) state.sabotage.panelsDone.push(room);
+    }
+  },
+  SABOTAGE_FIXED(state){ state.sabotage = null; },
+  DOORS_OPEN(state, evt){
+    const edges = pick(evt, ["edges"], null);
+    const room = roomOf(evt);
+    if (Array.isArray(edges)){
+      for (const e of edges){ if (Array.isArray(e) && e.length >= 2) state.closedEdges.delete(edgeKey(e[0], e[1])); }
+    } else if (room){
+      for (const n of neighborsOf(room)) state.closedEdges.delete(edgeKey(room, n));
+    } else {
+      state.closedEdges = new Set();
+    }
+    if (state.sabotage && state.sabotage.kind === "doors") state.sabotage = null;
+  },
+  REPLAN(state, evt){
+    const path = pick(evt, ["path","route"], null);
+    state.lastReplan = {
+      agent: agentOf(evt), reason: pick(evt, ["reason"], ""),
+      expanded: pick(evt, ["expanded"], null),
+      path: Array.isArray(path) ? path : null, t: evt.t
+    };
+  },
+  PROGRESS_STALL(state, evt){
+    state.progressStall = { t: evt.t, ticks: pick(evt, ["ticks"], null), agents: pick(evt, ["agents"], []) || [] };
+  },
+  DEADLOCK_BROKEN(state, evt){ state.progressStall = null; state.deadlockBrokenAt = evt.t; },
+  LLM_PARSE_FAIL(state){ state.llmParseFails++; },
+  SHOCK(state, evt){ state.lastShock = { kind: pick(evt, ["kind"], "?"), room: roomOf(evt), t: evt.t }; },
+  GAME_OVER(state, evt){
+    state.gameOver = { winner: pick(evt, ["winner"], "?"), reason: pick(evt, ["reason"], ""), t: evt.t };
+  }
+};
+
+function applyEvent(state, evt){
+  // Ambient/global fields any event may optionally carry.
+  const tb = normalizeTaskBar(evt.task_bar);
+  if (tb) state.taskBar = tb;
+  const handler = EVENT_HANDLERS[evt.type];
+  if (!handler) return; // unknown type: ignored, never thrown
+  try{ handler(state, evt); }catch(e){ /* one bad event must never break the replay */ }
+}
+
+/* =========================================================================
+   App: log holder, snapshot cache, playback.
+   ========================================================================= */
+const App = {
+  events: [], malformed: 0, maxTick: 0,
+  snapshots: [],       // [{eventIndex, state}], eventIndex = last processed index (-1 = none)
+  SNAPSHOT_STRIDE: 150,
+  current: freshState(),
+  currentTick: 0,
+  currentEventIndex: -1,
+  playing: false,
+  speed: 1,
+  playTimer: null,
+  loaded: false
+};
+
+function buildSnapshots(){
+  App.snapshots = [];
+  let s = freshState();
+  App.snapshots.push({ eventIndex: -1, state: cloneState(s) });
+  for (let i = 0; i < App.events.length; i++){
+    applyEvent(s, App.events[i]);
+    if ((i + 1) % App.SNAPSHOT_STRIDE === 0){
+      App.snapshots.push({ eventIndex: i, state: cloneState(s) });
+    }
+  }
+}
+
+function lastEventIndexAtOrBefore(tick){
+  // events are sorted by t; binary search for the last index with t <= tick
+  let lo = 0, hi = App.events.length - 1, ans = -1;
+  while (lo <= hi){
+    const mid = (lo + hi) >> 1;
+    if (App.events[mid].t <= tick){ ans = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return ans;
+}
+
+function snapshotBefore(eventIndex){
+  let best = App.snapshots[0];
+  for (const snap of App.snapshots){
+    if (snap.eventIndex <= eventIndex) best = snap; else break;
+  }
+  return best;
+}
+
+function seekTo(tick){
+  tick = Math.max(0, Math.min(App.maxTick, tick));
+  const targetIdx = lastEventIndexAtOrBefore(tick);
+  const snap = snapshotBefore(targetIdx);
+  const s = cloneState(snap.state);
+  for (let i = snap.eventIndex + 1; i <= targetIdx; i++){
+    applyEvent(s, App.events[i]);
+  }
+  App.current = s;
+  App.currentTick = tick;
+  App.currentEventIndex = targetIdx;
+  render();
+}
+
+/* =========================================================================
+   Rendering — map canvas
+   ========================================================================= */
+const canvas = document.getElementById("mapCanvas");
+const ctx = canvas.getContext("2d");
+let mapBounds = null;
+
+function computeBounds(){
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for (const k in ROOMS){ const [x,y]=ROOMS[k]; minX=Math.min(minX,x); maxX=Math.max(maxX,x); minY=Math.min(minY,y); maxY=Math.max(maxY,y); }
+  mapBounds = {minX,maxX,minY,maxY};
+}
+computeBounds();
+
+function resizeCanvas(){
+  const wrap = document.getElementById("mapWrap");
+  const cssW = Math.max(320, wrap.clientWidth);
+  const cssH = Math.round(cssW * 0.56);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = cssW + "px";
+  canvas.style.height = cssH + "px";
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  render();
+}
+window.addEventListener("resize", resizeCanvas);
+
+function roomToXY(){
+  const wrap = document.getElementById("mapWrap");
+  const cssW = Math.max(320, wrap.clientWidth);
+  const cssH = Math.round(cssW * 0.56);
+  const pad = 46;
+  const { minX, maxX, minY, maxY } = mapBounds;
+  const sx = (cssW - 2*pad) / (maxX - minX || 1);
+  const sy = (cssH - 2*pad) / (maxY - minY || 1);
+  const s = Math.min(sx, sy);
+  const offX = pad + (cssW - 2*pad - (maxX-minX)*s)/2;
+  const offY = pad + (cssH - 2*pad - (maxY-minY)*s)/2;
+  const map = {};
+  for (const k in ROOMS){
+    const [x,y] = ROOMS[k];
+    map[k] = [offX + (x - minX)*s, offY + (maxY - y)*s]; // flip y: higher y drawn higher up
+  }
+  return map;
+}
+
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function drawMap(){
+  const pts = roomToXY();
+  const wrap = document.getElementById("mapWrap");
+  const cssW = Math.max(320, wrap.clientWidth);
+  const cssH = Math.round(cssW * 0.56);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const edgeColor = cssVar("--edge"), roomFill = cssVar("--room-fill"), roomStroke = cssVar("--room-stroke");
+  const doorColor = cssVar("--door"), ventColor = cssVar("--vent"), textColor = cssVar("--text"), mutedColor = cssVar("--muted");
+
+  // corridors
+  ctx.lineWidth = 2;
+  ctx.font = "10px ui-monospace, monospace";
+  for (const [a,b,w] of EDGES){
+    if (!pts[a] || !pts[b]) continue;
+    const closed = App.current.closedEdges.has(edgeKey(a,b));
+    ctx.strokeStyle = closed ? doorColor : edgeColor;
+    ctx.setLineDash(closed ? [6,4] : []);
+    ctx.beginPath();
+    ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const mx = (pts[a][0]+pts[b][0])/2, my = (pts[a][1]+pts[b][1])/2;
+    ctx.fillStyle = mutedColor;
+    ctx.fillText(String(w), mx+3, my-3);
+  }
+  // vents
+  ctx.strokeStyle = ventColor;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([2,4]);
+  for (const [a,b] of VENT_PAIRS){
+    if (!pts[a] || !pts[b]) continue;
+    ctx.beginPath();
+    ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // path overlay (REPLAN) — brief, fades with age
+  const lr = App.current.lastReplan;
+  if (lr && lr.path && lr.path.length >= 2){
+    const age = App.currentTick - lr.t;
+    if (age >= 0 && age <= 4){
+      const alpha = 1 - age/5;
+      const col = (AGENT_COLORS[lr.agent] || {fill:"#888"}).fill;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0.15, alpha);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      let started = false;
+      for (const r of lr.path){
+        if (!pts[r]) continue;
+        if (!started){ ctx.moveTo(pts[r][0], pts[r][1]); started = true; }
+        else ctx.lineTo(pts[r][0], pts[r][1]);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // sabotage pulse
+  const sab = App.current.sabotage;
+  let pulseRooms = [];
+  if (sab){
+    pulseRooms = (sab.panels && sab.panels.length) ? sab.panels : (sab.room ? [sab.room] : []);
+  }
+  if (pulseRooms.length){
+    const phase = (performance.now() % 1200) / 1200;
+    const r = 20 + 10 * Math.sin(phase * Math.PI * 2);
+    ctx.save();
+    ctx.strokeStyle = cssVar("--warn");
+    ctx.lineWidth = 2.5;
+    ctx.globalAlpha = 0.75;
+    for (const rm of pulseRooms){
+      if (!pts[rm]) continue;
+      ctx.beginPath(); ctx.arc(pts[rm][0], pts[rm][1], r, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // rooms
+  ctx.font = "11px -apple-system, Segoe UI, sans-serif";
+  for (const k in pts){
+    const [x,y] = pts[k];
+    ctx.fillStyle = roomFill;
+    ctx.strokeStyle = roomStroke;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x-30,y-13,60,26,6) : ctx.rect(x-30,y-13,60,26);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(k.replace("_"," "), x, y);
+  }
+  ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+
+  // agents + bodies, offset within their room so co-located tokens don't overlap
+  const byRoom = {};
+  for (const a of AGENT_IDS){
+    const room = App.current.positions[a];
+    if (App.current.alive[a] === false) continue;
+    if (!room) continue; // in transit, drawn separately
+    (byRoom[room] = byRoom[room] || []).push(a);
+  }
+  const revealOn = document.getElementById("revealToggle").checked;
+  const impostors = (App.current.roles && App.current.roles.impostors) || [];
+
+  for (const room in byRoom){
+    const agentsHere = byRoom[room];
+    const [cx,cy] = pts[room];
+    const n = agentsHere.length;
+    agentsHere.forEach((a, i) => {
+      const ang = (i / Math.max(n,1)) * Math.PI * 2 - Math.PI/2;
+      const rad = n > 1 ? 16 : 0;
+      const ax = cx + Math.cos(ang)*rad, ay = cy + 20 + Math.sin(ang)*rad*0.5;
+      const col = AGENT_COLORS[a] || {fill:"#888", stroke:"#333"};
+      ctx.beginPath(); ctx.arc(ax, ay, 6, 0, Math.PI*2);
+      ctx.fillStyle = col.fill; ctx.fill();
+      ctx.lineWidth = revealOn && impostors.includes(a) ? 3 : 1.4;
+      ctx.strokeStyle = revealOn && impostors.includes(a) ? "#ff2222" : col.stroke;
+      ctx.stroke();
+    });
+  }
+
+  // agents in transit — drawn along the corridor
+  for (const a in App.current.transits){
+    if (App.current.alive[a] === false) continue;
+    const tr = App.current.transits[a];
+    if (!pts[tr.from] || !pts[tr.to]) continue;
+    const prog = tr.eta > 0 ? Math.min(1, Math.max(0, (App.currentTick - tr.startTick) / tr.eta)) : 1;
+    const x = pts[tr.from][0] + (pts[tr.to][0]-pts[tr.from][0])*prog;
+    const y = pts[tr.from][1] + (pts[tr.to][1]-pts[tr.from][1])*prog;
+    const col = AGENT_COLORS[a] || {fill:"#888", stroke:"#333"};
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2);
+    ctx.fillStyle = col.fill; ctx.fill();
+    ctx.lineWidth = revealOn && impostors.includes(a) ? 3 : 1.4;
+    ctx.strokeStyle = revealOn && impostors.includes(a) ? "#ff2222" : col.stroke;
+    ctx.stroke();
+  }
+
+  // bodies
+  ctx.font = "13px sans-serif";
+  ctx.fillStyle = cssVar("--danger");
+  const bodyByRoom = {};
+  for (const b of App.current.bodies){
+    if (b.t > App.currentTick) continue;
+    (bodyByRoom[b.room] = bodyByRoom[b.room] || []).push(b);
+  }
+  for (const room in bodyByRoom){
+    if (!pts[room]) continue;
+    const [cx,cy] = pts[room];
+    bodyByRoom[room].forEach((b,i) => {
+      ctx.fillText("✕", cx - 18 + i*12, cy - 18);
+    });
+  }
+}
+
+/* Continuously re-render while a sabotage pulse needs animating. */
+function animLoop(){
+  if (App.current && App.current.sabotage) drawMap();
+  requestAnimationFrame(animLoop);
+}
+requestAnimationFrame(animLoop);
+
+/* =========================================================================
+   Rendering — header, legend, feed, meeting overlay
+   ========================================================================= */
+function renderHeader(){
+  document.getElementById("statTick").textContent = App.currentTick + " / " + App.maxTick;
+  document.getElementById("scrub").value = App.currentTick;
+  document.getElementById("tickLabel").textContent = "t = " + App.currentTick;
+
+  const tb = App.current.taskBar;
+  const pct = tb && tb.total > 0 ? Math.round((tb.done/tb.total)*100) : 0;
+  document.getElementById("taskBarInner").style.width = pct + "%";
+  // task_bar (§14.1) is already a 0..1 fraction, not a done/total task count,
+  // so the header shows a percentage rather than a misleading "x / y".
+  document.getElementById("statTaskText").textContent = tb ? (pct + "%") : "n/a";
+
+  const aliveCount = AGENT_IDS.filter(a => App.current.alive[a] !== false).length;
+  document.getElementById("statAlive").textContent = aliveCount + " / " + AGENT_IDS.length;
+
+  const sab = App.current.sabotage;
+  if (sab){
+    const elapsed = App.currentTick - sab.startTick;
+    const remaining = Math.max(0, sab.startTimer - elapsed);
+    document.getElementById("statSabotage").textContent = sab.kind + " (" + remaining + "t)";
+  } else {
+    document.getElementById("statSabotage").textContent = "none";
+  }
+  document.getElementById("statMeetings").textContent = String(App.current.meetingCount);
+}
+
+function renderLegend(){
+  const el = document.getElementById("legend");
+  el.innerHTML = "";
+  for (const a of AGENT_IDS){
+    const col = AGENT_COLORS[a];
+    const item = document.createElement("div");
+    item.className = "legendItem";
+    item.innerHTML = '<span class="swatch" style="background:'+col.fill+';border-color:'+col.stroke+'"></span>' + a;
+    el.appendChild(item);
+  }
+}
+
+function fmt2(n){ return (n < 10 ? "0" : "") + n; }
+
+function formatLine(evt){
+  const t = "[t=" + fmt2(evt.t) + "]";
+  switch (evt.type){
+    case "MOVE": return t+" MOVE     "+agentOf(evt)+"  "+pick(evt,["from"],"?")+" -> "+pick(evt,["to"],"?")+" (eta "+pick(evt,["eta"],"?")+")";
+    case "ARRIVE": return t+" ARRIVE   "+agentOf(evt)+"  @"+roomOf(evt);
+    case "VENT": return t+" VENT     "+agentOf(evt)+"  "+pick(evt,["from"],"?")+" ~> "+pick(evt,["to"],"?");
+    case "KILL": return t+" KILL     "+pick(evt,["killer"],"?")+" x "+pick(evt,["victim"],"?")+" @"+roomOf(evt)+"   witnesses="+JSON.stringify(pick(evt,["witnesses"],[]));
+    case "BODY_SEEN": return t+" BODY_SEEN "+agentOf(evt)+" saw "+pick(evt,["victim"],"?")+" @"+roomOf(evt);
+    case "REPORT": return t+" REPORT   "+agentOf(evt)+" found "+pick(evt,["victim"],"?")+" @"+roomOf(evt)+" -> MEETING #"+pick(evt,["meeting"],"?");
+    case "BUTTON": return t+" BUTTON   "+agentOf(evt)+" @"+roomOf(evt)+" -> MEETING #"+pick(evt,["meeting"],"?");
+    case "MEETING_START": return t+" MEETING #"+pick(evt,["meeting"],"?")+" START ("+pick(evt,["reason"],"?")+")";
+    case "STATEMENT": return "[M"+pick(evt,["meeting"],"?")+" r"+pick(evt,["round"],"?")+"] "+agentOf(evt)+"  \""+pick(evt,["text"],"")+"\"";
+    case "SUSPICION": {
+      const sc = pick(evt,["scores"],{}) || {};
+      const parts = Object.keys(sc).map(k => k+" "+Number(sc[k]).toFixed(2));
+      return "[M"+pick(evt,["meeting"],"?")+" sus] "+agentOf(evt)+"   "+parts.join(" | ");
+    }
+    case "VOTE": return "[M"+pick(evt,["meeting"],"?")+" vote] "+agentOf(evt)+" -> "+(pick(evt,["target"],null) || "skip");
+    case "EJECT": {
+      const tally = pick(evt,["tally"],null);
+      const tallyStr = tally ? Object.keys(tally).map(k=>k+":"+tally[k]).join(" ") : "";
+      const target = pick(evt,["target","agent"],null);
+      const res = target ? "EJECT "+target+" ("+(pick(evt,["was_impostor"],false)?"IMPOSTOR":"CREWMATE")+")" : "no ejection";
+      return "[M"+pick(evt,["meeting"],"?")+" vote] "+tallyStr+" -> "+res;
+    }
+    case "SABOTAGE": return t+" SABOTAGE "+pick(evt,["kind"],"?")+" panels="+JSON.stringify(pick(evt,["panels"],[]))+" timer="+pick(evt,["timer"],"?");
+    case "BID": {
+      const costs = pick(evt,["costs"],{}) || {};
+      const parts = Object.keys(costs).map(k => k+"="+costs[k]);
+      return t+" BID      "+agentOf(evt)+" costs="+parts.join(",");
+    }
+    case "COMMIT": return t+" COMMIT   "+agentOf(evt)+" -> "+pick(evt,["target"],"?")+" eta="+pick(evt,["eta"],"?");
+    case "REVOKE": return t+" REVOKE   "+agentOf(evt)+" "+pick(evt,["target"],"?")+" (eta "+pick(evt,["eta"],"?")+" +"+pick(evt,["grace"],"?")+") -> BACKUP "+pick(evt,["backup"],"?")+" eta="+pick(evt,["backup_eta"],"?");
+    case "PANEL_DONE": return t+" PANEL_DONE "+roomOf(evt)+" by "+agentOf(evt);
+    case "SABOTAGE_FIXED": return t+" SABOTAGE_FIXED "+pick(evt,["kind"],"?");
+    case "DOORS_OPEN": return t+" DOORS_OPEN "+(roomOf(evt)||"");
+    case "REPLAN": return t+" REPLAN   "+agentOf(evt)+" reason="+pick(evt,["reason"],"?")+" expanded="+pick(evt,["expanded"],"?");
+    case "PROGRESS_STALL": return t+" PROGRESS_STALL ticks="+pick(evt,["ticks"],"?");
+    case "DEADLOCK_BROKEN": return t+" DEADLOCK_BROKEN";
+    case "LLM_PARSE_FAIL": return t+" LLM_PARSE_FAIL "+agentOf(evt);
+    case "SHOCK": return t+" SHOCK    "+pick(evt,["kind"],"?")+(roomOf(evt) ? " @"+roomOf(evt) : "");
+    case "GAME_OVER": return t+" GAME_OVER winner="+pick(evt,["winner"],"?")+" reason="+pick(evt,["reason"],"?");
+    case "SPAWN": return t+" SPAWN    "+agentOf(evt)+" @"+roomOf(evt);
+    case "ROLES": return t+" ROLES    impostors="+JSON.stringify(pick(evt,["impostors"],[]));
+    default: {
+      const rest = Object.assign({}, evt);
+      delete rest.t; delete rest.type; delete rest.__line;
+      return t+" "+evt.type+" "+JSON.stringify(rest);
+    }
+  }
+}
+
+let feedBuilt = false;
+function buildFeedOnce(){
+  const feed = document.getElementById("feed");
+  feed.innerHTML = "";
+  App.events.forEach((evt, idx) => {
+    const div = document.createElement("div");
+    div.className = "feedLine type-" + evt.type;
+    div.dataset.tick = String(evt.t);
+    div.dataset.idx = String(idx);
+    div.textContent = formatLine(evt);
+    div.addEventListener("click", () => { App.playing = false; stopPlayLoop(); seekTo(evt.t); });
+    feed.appendChild(div);
+  });
+  if (App.malformed > 0){
+    const note = document.createElement("div");
+    note.className = "feedLine malformedLine";
+    note.textContent = App.malformed + " malformed line(s) were skipped.";
+    feed.appendChild(note);
+  }
+  feedBuilt = true;
+  document.getElementById("feedCount").textContent = App.events.length + " events";
+}
+
+function renderFeed(){
+  const feed = document.getElementById("feed");
+  const children = feed.children;
+  let lastVisible = null;
+  for (let i = 0; i < children.length; i++){
+    const el = children[i];
+    if (el.classList.contains("malformedLine")) continue;
+    const idx = Number(el.dataset.idx);
+    const visible = idx <= App.currentEventIndex;
+    el.classList.toggle("future", !visible);
+    el.classList.toggle("current", visible && App.events[idx].t === App.currentTick);
+    if (visible) lastVisible = el;
+  }
+  if (lastVisible) lastVisible.scrollIntoView({ block: "nearest" });
+}
+
+/* ---- Meeting overlay: the showcase panel ---- */
+function renderMeetingOverlay(){
+  const m = App.current.meeting;
+  const overlay = document.getElementById("meetingOverlay");
+  const dim = document.getElementById("mapDim");
+  const show = !!(m && m.startTick === App.currentTick);
+  overlay.classList.toggle("show", show);
+  dim.classList.toggle("on", show);
+  if (!show) return;
+
+  document.getElementById("meetingNum").textContent = String(m.number);
+  document.getElementById("meetingReason").textContent = m.reason ? "(" + m.reason + (m.room ? " @" + m.room : "") + ")" : "";
+
+  const transcript = document.getElementById("meetingTranscript");
+  transcript.innerHTML = "";
+  let lastRound = null;
+  for (const s of m.statements){
+    if (s.round !== lastRound){
+      const label = document.createElement("div");
+      label.className = "roundLabel";
+      label.textContent = "Round " + s.round;
+      transcript.appendChild(label);
+      lastRound = s.round;
+    }
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    const col = AGENT_COLORS[s.agent] || {fill:"#888", stroke:"#333"};
+    bubble.innerHTML =
+      '<div class="avatar" style="background:'+col.fill+';border-color:'+col.stroke+'">'+(s.agent[0]||"?").toUpperCase()+'</div>' +
+      '<div class="bubbleBody"><div class="who">'+s.agent+'</div><div class="txt"></div></div>';
+    bubble.querySelector(".txt").textContent = s.text;
+    transcript.appendChild(bubble);
+  }
+  if (m.statements.length === 0){
+    transcript.innerHTML = '<div style="color:var(--muted);font-size:.85em;">(no statements yet)</div>';
+  }
+
+  const susSection = document.getElementById("meetingSuspicionSection");
+  const sus = document.getElementById("meetingSuspicion");
+  sus.innerHTML = "";
+  if (m.suspicion.length === 0){
+    susSection.style.display = "none";
+  } else {
+    susSection.style.display = "";
+    // latest reading per reporting agent
+    const latest = {};
+    for (const row of m.suspicion) latest[row.agent] = row;
+    for (const agent in latest){
+      const row = latest[agent];
+      const block = document.createElement("div");
+      block.className = "susRow";
+      let html = '<div class="susAgent">'+agent+' thinks:</div>';
+      for (const target in row.scores){
+        const v = Math.max(0, Math.min(1, Number(row.scores[target]) || 0));
+        html += '<div class="susBarTrack"><span class="susBarLabel">'+target+'</span>' +
+                '<span class="susBarOuter"><span class="susBarInner" style="width:'+(v*100)+'%"></span></span>' +
+                '<span class="susBarVal">'+v.toFixed(2)+'</span></div>';
+      }
+      block.innerHTML = html;
+      sus.appendChild(block);
+    }
+  }
+
+  const voteSection = document.getElementById("meetingVoteSection");
+  const tallyEl = document.getElementById("meetingTally");
+  const resultEl = document.getElementById("meetingResult");
+  tallyEl.innerHTML = ""; resultEl.innerHTML = "";
+  if (!m.eject){
+    voteSection.style.display = m.votes.length ? "" : "none";
+    if (m.votes.length){
+      const counts = {};
+      for (const v of m.votes){ const k = v.target || "skip"; counts[k] = (counts[k]||0)+1; }
+      for (const k in counts){
+        const chip = document.createElement("span");
+        chip.className = "tallyChip"; chip.textContent = k + ": " + counts[k];
+        tallyEl.appendChild(chip);
+      }
+    }
+  } else {
+    voteSection.style.display = "";
+    const tally = m.eject.tally || (() => {
+      const counts = {};
+      for (const v of m.votes){ const k = v.target || "skip"; counts[k] = (counts[k]||0)+1; }
+      return counts;
+    })();
+    for (const k in tally){
+      const chip = document.createElement("span");
+      chip.className = "tallyChip"; chip.textContent = k + ": " + tally[k];
+      tallyEl.appendChild(chip);
+    }
+    const result = document.createElement("div");
+    if (m.eject.agent){
+      result.className = "resultLine " + (m.eject.was_impostor ? "ejected-impostor" : "ejected-crew");
+      result.textContent = m.eject.agent + " was ejected — " + (m.eject.was_impostor ? "IMPOSTOR" : "not an impostor");
+    } else {
+      result.className = "resultLine no-eject";
+      result.textContent = "No one was ejected.";
+    }
+    resultEl.appendChild(result);
+  }
+}
+
+function render(){
+  drawMap();
+  renderHeader();
+  if (feedBuilt) renderFeed();
+  renderMeetingOverlay();
+  const playBtn = document.getElementById("playBtn");
+  playBtn.textContent = App.playing ? "⏸" : "▶";
+}
+
+/* =========================================================================
+   Transport controls
+   ========================================================================= */
+function stopPlayLoop(){
+  if (App.playTimer){ clearInterval(App.playTimer); App.playTimer = null; }
+  App.playing = false;
+}
+function startPlayLoop(){
+  stopPlayLoop();
+  App.playing = true;
+  const base = 450;
+  App.playTimer = setInterval(() => {
+    if (App.currentTick >= App.maxTick){ stopPlayLoop(); render(); return; }
+    seekTo(App.currentTick + 1);
+  }, base / App.speed);
+}
+
+document.getElementById("playBtn").addEventListener("click", () => {
+  if (!App.loaded) return;
+  if (App.playing) stopPlayLoop(); else startPlayLoop();
+  render();
+});
+document.getElementById("stepFwdBtn").addEventListener("click", () => { stopPlayLoop(); if (App.loaded) seekTo(App.currentTick + 1); });
+document.getElementById("stepBackBtn").addEventListener("click", () => { stopPlayLoop(); if (App.loaded) seekTo(App.currentTick - 1); });
+document.getElementById("scrub").addEventListener("input", (e) => { stopPlayLoop(); if (App.loaded) seekTo(Number(e.target.value)); });
+document.querySelectorAll(".speedBtn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".speedBtn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    App.speed = Number(btn.dataset.speed) || 1;
+    if (App.playing) startPlayLoop();
+  });
+});
+document.getElementById("revealToggle").addEventListener("change", render);
+document.addEventListener("keydown", (e) => {
+  if (!App.loaded) return;
+  if (e.target && (e.target.tagName === "INPUT")) return;
+  if (e.code === "Space"){ e.preventDefault(); document.getElementById("playBtn").click(); }
+  else if (e.code === "ArrowRight"){ document.getElementById("stepFwdBtn").click(); }
+  else if (e.code === "ArrowLeft"){ document.getElementById("stepBackBtn").click(); }
+});
+
+/* =========================================================================
+   Loading: drag-and-drop, file picker, ?log=
+   ========================================================================= */
+function showEmpty(msg){
+  document.getElementById("feed").innerHTML = '<div id="emptyState">' + msg + '</div>';
+  document.getElementById("dropHint").classList.remove("hidden");
+}
+
+function initApp(text, name){
+  const { events, malformed, totalLines } = parseLog(text);
+  App.events = events;
+  App.malformed = malformed;
+  App.maxTick = events.length ? events[events.length - 1].t : 0;
+  App.loaded = events.length > 0;
+  feedBuilt = false;
+
+  document.getElementById("logName").textContent = name || "(dropped log)";
+  const badge = document.getElementById("malformedBadge");
+  if (malformed > 0){ badge.style.display = "inline-block"; badge.textContent = malformed + " malformed line(s) skipped"; }
+  else { badge.style.display = "none"; }
+
+  if (events.length === 0){
+    document.getElementById("dropHint").classList.remove("hidden");
+    if (totalLines === 0) showEmpty("Empty log — no events found.");
+    else showEmpty("No valid events could be parsed from this file (" + malformed + " malformed line(s)).");
+    document.getElementById("scrub").max = 0;
+    App.current = freshState();
+    App.currentTick = 0; App.currentEventIndex = -1;
+    render();
+    return;
+  }
+
+  document.getElementById("dropHint").classList.add("hidden");
+  buildSnapshots();
+  buildFeedOnce();
+  document.getElementById("scrub").max = App.maxTick;
+  renderLegend();
+  seekTo(0);
+}
+
+function loadFile(file){
+  const reader = new FileReader();
+  reader.onload = () => { try{ initApp(String(reader.result || ""), file.name); }catch(e){ showEmpty("Could not read this file."); } };
+  reader.onerror = () => showEmpty("Could not read this file.");
+  reader.readAsText(file);
+}
+
+document.getElementById("pickFileBtn").addEventListener("click", () => document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) loadFile(f);
+});
+window.addEventListener("dragover", (e) => { e.preventDefault(); });
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+/* Convenience loader for ?log=path — only works when served over http(s);
+   silently falls back to drag-and-drop on file:// where fetch is blocked. */
+(function tryQueryLoad(){
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const logPath = params.get("log");
+    if (!logPath) return;
+    fetch(logPath).then(r => {
+      if (!r.ok) throw new Error("bad response");
+      return r.text();
+    }).then(text => initApp(text, logPath)).catch(() => {
+      showEmpty('Could not fetch "' + logPath + '" (this only works when the viewer is served over http, not opened from disk). Use drag-and-drop instead.');
+    });
+  }catch(e){ /* never throw during boot */ }
+})();
+
+/* =========================================================================
+   Theme toggle
+   ========================================================================= */
+(function initTheme(){
+  let saved = "system";
+  try{ saved = localStorage.getItem("amongus_viewer_theme") || "system"; }catch(e){}
+  applyTheme(saved);
+})();
+function applyTheme(mode){
+  document.documentElement.setAttribute("data-theme", mode);
+  document.getElementById("themeToggle").textContent = "Theme: " + mode[0].toUpperCase() + mode.slice(1);
+  try{ localStorage.setItem("amongus_viewer_theme", mode); }catch(e){}
+}
+document.getElementById("themeToggle").addEventListener("click", () => {
+  const order = ["system","light","dark"];
+  const cur = document.documentElement.getAttribute("data-theme") || "system";
+  const next = order[(order.indexOf(cur)+1) % order.length];
+  applyTheme(next);
+});
+
+renderLegend();
+resizeCanvas();
+render();
+
+})();
+</script>
+</body>
+</html>

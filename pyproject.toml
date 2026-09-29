@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amongus"
+version = "0.1.0"
+description = "AI Among Us — algorithmic multi-agent simulation on a 14-room map"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "networkx>=3.2",
+    "mesa>=3.0,<4",
+    "google-genai",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

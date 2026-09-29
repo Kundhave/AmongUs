@@ -122,10 +122,12 @@ The swappable modules, for the scalability mark: `world`, `search`, `agents`, `l
 | `colors` | red, blue, green, pink, orange, yellow, black, white | agent ids, this order |
 | `max_ticks` | 400 | draw if reached |
 | `tasks_per_crewmate` | 4 | |
+| `task_duration_noise` | 1 | task duration = pool base + uniform integer in `[-noise, +noise]`, floored at 1 |
 | `kill_cooldown` | 20 | ticks; reset after each meeting |
 | `button_room` | cafeteria | |
 | `p_miss` | 0.02 | per-occupant observation miss probability |
 | `p_miss_lights` | 0.50 | crewmate miss probability during lights sabotage |
+| `p_body_visible_lights` | 0.70 | probability a body in the room is seen during lights sabotage |
 | `alpha_risk` | 2.0 | risk weight in A\* edge cost (§8.2) |
 | `last_seen_decay` | 15 | ticks after which a sighting stops localising an agent |
 | `theta_vote` | 0.35 | min suspicion to vote rather than skip |
@@ -312,7 +314,7 @@ Validated at load (tested): 14 rooms, 24 edges, connected, all weights ≥ 1, ve
 ### 6.1 Setup
 1. `rng = make_rng(config.seed)`.
 2. Pick `n_impostors` ids uniformly without replacement (a scenario may override).
-3. Each crewmate draws `tasks_per_crewmate` distinct tasks from the pool. Impostors get the same count as fake tasks, never counted in `task_bar`.
+3. Each crewmate draws `tasks_per_crewmate` distinct tasks from the pool. Duration = the pool's base value + a uniform integer in `[-task_duration_noise, +task_duration_noise]`, floored at 1 — so task timing is a genuine source of stochasticity, not a fixed table. Impostors get the same count as fake tasks, never counted in `task_bar`.
 4. All agents spawn in `cafeteria` at tick 0.
 5. Kill cooldowns set to `kill_cooldown`.
 
@@ -320,14 +322,22 @@ Validated at load (tested): 14 rooms, 24 edges, connected, all weights ≥ 1, ve
 
 1. **Decide.** For each alive agent in fixed id order, `action = policy.decide(obs_t)`, or a scripted action from the scenario. Decisions are simultaneous — no agent sees another's action this tick.
 2. **Sabotage.** Valid `Sabotage` actions start one (§12). At most one active; on a tie the first agent in id order wins.
-3. **Movement.** Agents in transit decrement `remaining` and arrive at 0. `Move(to)` along an open edge starts a transit with `remaining = weight`. `Vent(to)` arrives this tick. **Agents in transit are in no room: they cannot be seen, killed, or act.**
-4. **Kills.** `Kill(target)` is valid if the killer is an alive impostor with cooldown 0, both are in the same room after movement, and the target is an alive crewmate. On a duplicate target the first killer in id order resolves. The victim dies, a `Body` is created, the cooldown resets. Other alive agents in the room are witnesses, each seeing it with probability `1 − p_miss_eff` (§7).
-5. **Work.** `DoTask` advances progress if the agent is in the task room. `HoldPanel` advances the panel counter. Crewmate progress updates `task_bar` and `last_progress_tick`.
-6. **Reports and button.** `Report` needs an unreported body in the room; `PressButton` needs `button_room` and `not button_used`. Either flags a meeting. **No meetings while a reactor sabotage is active** — the flag queues and fires the tick the reactor is fixed.
-7. **Timers.** Decrement cooldowns, the sabotage timer, and door timers (reopen at 0). Run the deadlock detector (§13).
-8. **Win check.** Crew wins if all real tasks are done or all impostors are ejected. Impostors win if alive impostors ≥ alive crewmates, or the reactor timer hits 0. Draw at `max_ticks`.
-9. **Observe.** Build `obs_{t+1}` for each alive agent (§7) and append notes.
-10. **Meeting.** If flagged, run §10. Then respawn all alive agents in `cafeteria`, cancel transits, reset kill cooldowns, clear lights and doors, mark all bodies reported.
+3. **Arrivals.** Agents in transit decrement `remaining` and **arrive** at 0, entering their destination room. `Vent(to)` arrives this tick. Agents still in transit are in no room: they cannot be seen, killed, or act.
+4. **Kills.** `Kill(target)` is valid if the killer is an alive impostor with cooldown 0, both are **in the same room after arrivals but before departures**, and the target is an alive crewmate. On a duplicate target the first killer in id order resolves. The victim dies, a `Body` is created, the cooldown resets. Other alive agents in the room are witnesses, each seeing it with probability `1 − p_miss_eff` (§7).
+
+   **Task inheritance.** The victim's *incomplete* tasks are reassigned to the surviving crewmate holding the fewest remaining tasks, ties broken by agent id. Progress already made on a task is preserved.
+
+   > **Why inheritance and not forfeiture.** There are no ghosts (§19), so without reassignment a dead crewmate's unfinished work is stranded and `all_tasks_done` becomes unreachable after the very first kill — measured: 19 stranded tasks across 12 games, the task bar frozen below 100% forever. The obvious alternative, shrinking the goal to only living crewmates' tasks, creates a perverse incentive: killing a crewmate would *help* the crew win sooner. Reassignment keeps the total task count constant, so a kill costs the crew labour without moving the goalposts in either direction.
+
+   > **Why movement is split around kills.** Resolving all movement before kills makes kills almost impossible, because a `Move` puts an agent into transit instantly and transit agents cannot be killed. Crewmates move nearly every tick while working, so a target escapes just by deciding to walk. Measured on the first implementation: of 31 kill decisions where the target was co-located at decision time, **only 2 resolved**. Splitting movement — arrivals before kills, departures after — means a target cannot dodge a kill by choosing to leave in the same tick. It is already caught; it departs only if it survives. This also keeps kill resolution consistent with the observation the killer decided from.
+
+5. **Departures.** `Move(to)` along an open edge starts a transit with `remaining = weight`. A surviving agent that chose to move leaves now.
+6. **Work.** `DoTask` advances progress if the agent is in the task room. `HoldPanel` advances the panel counter. Crewmate progress updates `task_bar` and `last_progress_tick`.
+7. **Reports and button.** `Report` needs an unreported body in the room; `PressButton` needs `button_room` and `not button_used`. Either flags a meeting. **No meetings while a reactor sabotage is active** — the flag queues and fires the tick the reactor is fixed.
+8. **Timers.** Decrement cooldowns, the sabotage timer, and door timers (reopen at 0). Run the deadlock detector (§13).
+9. **Win check.** Crew wins if all real tasks are done or all impostors are ejected. Impostors win if alive impostors ≥ alive crewmates, or the reactor timer hits 0. Draw at `max_ticks`.
+10. **Observe.** Build `obs_{t+1}` for each alive agent (§7) and append notes.
+11. **Meeting.** If flagged, run §10. Then respawn all alive agents in `cafeteria`, cancel transits, reset kill cooldowns, clear lights and doors, mark all bodies reported.
 
 Every state change emits an `Event` (§14).
 
@@ -337,7 +347,9 @@ Every state change emits an `Event` (§14).
 
 An `Observation` for agent `i` holds:
 
-**Local** (only if in a room): `room`, `tick`, own `AgentPhys`; `occupants` — each other alive agent in the room included independently with probability `1 − p_miss_eff`; `bodies_here` — visible always, or with probability 0.7 during lights; `local_events` — kills and vent exits in this room this tick, each seen with probability `1 − p_miss_eff`.
+**Local** (only if in a room): `room`, `tick`, own `AgentPhys`; `occupants` — each other alive agent in the room included independently with probability `1 − p_miss_eff`; `bodies_here` — visible always, or with probability `p_body_visible_lights` during lights; `local_events` — kills and vent exits in this room this tick, each seen with probability `1 − p_miss_eff`.
+
+**Perception is rolled once and shared.** For a kill or a vent, the per-observer outcome is decided at resolution time (§6.2 steps 3–4) and that single result feeds *both* the event log's `witnesses` field and each observer's `local_events`. Never roll the same perception twice. A log that reports `witnesses: ["green"]` while green's own notes contain no kill is incoherent on screen — the UI would show green as a witness who then never mentions it — and indefensible under questioning. A test asserts three sets are identical: `KILL.witnesses`, the agents whose `local_events` contain that kill, and the agents whose generated notes contain a `kill` note.
 
 `p_miss_eff = p_miss_lights` for crewmates during a lights sabotage, else `p_miss`. **Impostors are unaffected by lights** — that asymmetry is the point of the sabotage.
 
@@ -492,9 +504,12 @@ The meeting is the only point where the world clock pauses.
 1. A body is in the room, or it witnessed a kill this tick → `Report`.
 2. Committed to a reactor panel (§12.3) → A\* to it (no risk term), then `HoldPanel`.
 3. Lights active and within 6 ticks of `electrical` → go hold that panel.
-4. Shadowing enabled and a co-located agent has suspicion ≥ `theta_shadow` → **shadow** it: move toward its last seen room, or `Wait` if already together.
-5. Tasks remain → visit task rooms **nearest-first** by A\* distance, `DoTask` on arrival.
-6. Tasks done → move to the adjacent room with the lowest risk and keep watching.
+4. **Emergency meeting.** It holds a `kill` or `vent` note recorded **since the last meeting ended**, its button is unused, and no reactor sabotage is active → A\* to `button_room` and `PressButton` on arrival.
+
+   > **Why this step exists.** Without it the crew's only route to a meeting is physically stumbling across a body. Measured on the first implementation: 21 kills produced 10 reports and **zero** button presses, because no policy ever called `PressButton` at all. Half the bodies were never found, so half the killings never became testimony. This step is what converts *"I saw something"* into *"we need to talk"* — the mechanism the whole project is about. The trigger is having witnessed something, not a suspicion threshold: a witness knows it has information worth convening over, whereas a suspicion score before the first meeting carries no evidence at all.
+5. Shadowing enabled and a co-located agent has suspicion ≥ `theta_shadow` → **shadow** it: move toward its last seen room, or `Wait` if already together.
+6. Tasks remain → visit task rooms **nearest-first** by A\* distance, `DoTask` on arrival.
+7. Tasks done → move to the adjacent room with the lowest risk and keep watching.
 
 Nearest-first is a deliberate choice over exact TSP ordering: with 4 task rooms the optimal tour saves a handful of ticks and costs a subset-DP recurrence to defend. Be ready to say that Held–Karp would give the optimal order in `O(k²·2^k)` and that we judged it not worth the complexity here.
 
@@ -514,7 +529,7 @@ Impostors never self-report a body.
 `world/sabotage.py` holds the state machines; `agents/protocol.py` holds the reactor negotiation.
 
 ### 12.1 Lights — *the "sensor failure" shock*
-Active until an agent holds the `electrical` panel for `panel_hold_ticks`. Effect: crewmate `p_miss_eff = p_miss_lights`, bodies visible with probability 0.7. Impostors unaffected.
+Active until an agent holds the `electrical` panel for `panel_hold_ticks`. Effect: crewmate `p_miss_eff = p_miss_lights`, bodies visible with probability `p_body_visible_lights`. Impostors unaffected.
 
 ### 12.2 Doors — *the "grid barrier" shock*
 Closes every corridor incident to the target room for `doors_duration` ticks. Vents are unaffected. Agents already in transit continue. Fires a `topology` replan for every agent, which is what makes A\* visibly reroute in the demo.
@@ -547,11 +562,44 @@ With `deadlock_protocol = False` the event is never emitted and the stall persis
 ## §14 Telemetry
 
 ### 14.1 Event log
-Each run writes `runs/<scenario>_<seed>/events.jsonl`, one JSON object per line: `{"t": int, "type": str, ...}`. Required types:
 
-`SPAWN, ROLES, MOVE, ARRIVE, VENT, KILL, BODY_SEEN, REPORT, BUTTON, MEETING_START, STATEMENT, SUSPICION, VOTE, EJECT, SABOTAGE, BID, COMMIT, REVOKE, PANEL_DONE, SABOTAGE_FIXED, DOORS_OPEN, REPLAN, PROGRESS_STALL, DEADLOCK_BROKEN, LLM_PARSE_FAIL, SHOCK, GAME_OVER`
+Each run writes `runs/<scenario>_<seed>/events.jsonl`, one JSON object per line. The log must be complete enough for §15 to replay a whole game **without the simulator**.
 
-`ROLES` is written for analysis and the UI's reveal toggle only; no agent ever reads it. `SUSPICION` records `{agent, scores, round}`. The log must be complete enough for §15 to replay a whole game without the simulator.
+**Every line carries three keys**: `t` (int tick), `type` (str), and `task_bar` (float 0..1, the value *after* this event). Carrying `task_bar` everywhere costs ~20 bytes and lets the viewer render an exact header at any tick without inferring it.
+
+**This field schema is a binding contract between `sim/telemetry.py` and `ui/viewer.html`.** Emit exactly these names. A producer that renames a field silently degrades the viewer to `?`.
+
+| `type` | Fields beyond `t`, `type`, `task_bar` |
+|---|---|
+| `SPAWN` | `agent`, `room` |
+| `ROLES` | `impostors: [agent, agent]` |
+| `MOVE` | `agent`, `from`, `to`, `eta` (ticks of transit) |
+| `ARRIVE` | `agent`, `room` |
+| `VENT` | `agent`, `from`, `to` |
+| `KILL` | `killer`, `victim`, `room`, `witnesses: [agent]` |
+| `BODY_SEEN` | `agent`, `victim`, `room` |
+| `REPORT` | `agent`, `victim`, `room`, `meeting` (int) |
+| `BUTTON` | `agent`, `room`, `meeting` |
+| `MEETING_START` | `meeting`, `reason` (`"report"` \| `"button"`), `alive: [agent]` |
+| `STATEMENT` | `meeting`, `round`, `agent`, `text` |
+| `SUSPICION` | `meeting`, `round`, `agent`, `scores: {agent: float}` |
+| `VOTE` | `meeting`, `agent`, `target` (agent or `null` to skip) |
+| `EJECT` | `meeting`, `target` (agent or `null`), `was_impostor` (bool or `null`), `tally: {agent\|"skip": int}` |
+| `SABOTAGE` | `kind`, `panels: [room]`, `timer`, `room` (doors target, else `null`), `agent` (saboteur) |
+| `BID` | `agent`, `costs: {room: int}` |
+| `COMMIT` | `agent`, `target` (panel room), `eta` |
+| `REVOKE` | `agent`, `target`, `eta`, `grace` (the `eta_grace` in force), `backup` (agent or `null`), `backup_eta` |
+| `PANEL_DONE` | `agent`, `room` |
+| `SABOTAGE_FIXED` | `kind`, `ticks` (ticks taken to fix) |
+| `DOORS_OPEN` | `room`, `edges: [[room, room]]` |
+| `REPLAN` | `agent`, `reason`, `expanded`, `path: [room]` |
+| `PROGRESS_STALL` | `ticks` (ticks since last progress) |
+| `DEADLOCK_BROKEN` | `ticks` |
+| `LLM_PARSE_FAIL` | `agent`, `meeting`, `round` |
+| `SHOCK` | `kind`, `room` (or `null`) |
+| `GAME_OVER` | `winner` (`"crewmate"` \| `"impostor"` \| `null` for a draw), `ticks`, `reason` — one of `all_tasks_done`, `impostors_ejected`, `impostors_majority`, `reactor_timer`, `max_ticks` |
+
+Two events carry ground truth that **no agent may ever read**: `ROLES` and the `agent` field on `SABOTAGE`. They exist for analysis and for the viewer's reveal toggle, which is off by default. The viewer must not render either unless reveal is on — showing the saboteur's identity by default would spoil the deduction the demo is meant to display.
 
 ### 14.2 Terminal (verbosity 1–2, `rich` if available)
 

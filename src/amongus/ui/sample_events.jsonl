@@ -1,0 +1,126 @@
+{"agent": "red", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "blue", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "green", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "pink", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "orange", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "yellow", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "black", "room": "reactor", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"agent": "white", "room": "cafeteria", "t": 0, "task_bar": 0.0, "type": "SPAWN"}
+{"impostors": ["black", "white"], "t": 0, "task_bar": 0.0, "type": "ROLES"}
+{"agent": "red", "expanded": 2, "path": ["cafeteria", "admin"], "reason": "arrival", "t": 1, "task_bar": 0.0, "type": "REPLAN"}
+{"agent": "blue", "expanded": 4, "path": ["cafeteria", "storage", "communications"], "reason": "arrival", "t": 1, "task_bar": 0.0, "type": "REPLAN"}
+{"agent": "pink", "expanded": 2, "path": ["cafeteria", "medbay"], "reason": "arrival", "t": 1, "task_bar": 0.0, "type": "REPLAN"}
+{"agent": "orange", "expanded": 2, "path": ["cafeteria", "medbay"], "reason": "arrival", "t": 1, "task_bar": 0.0, "type": "REPLAN"}
+{"agent": "red", "eta": 4, "from": "cafeteria", "t": 1, "task_bar": 0.0, "to": "admin", "type": "MOVE"}
+{"agent": "blue", "eta": 4, "from": "cafeteria", "t": 1, "task_bar": 0.0, "to": "storage", "type": "MOVE"}
+{"agent": "pink", "eta": 3, "from": "cafeteria", "t": 1, "task_bar": 0.0, "to": "medbay", "type": "MOVE"}
+{"agent": "orange", "eta": 3, "from": "cafeteria", "t": 1, "task_bar": 0.0, "to": "medbay", "type": "MOVE"}
+{"agent": "black", "expanded": 4, "path": ["reactor", "upper_engine", "cafeteria"], "reason": "new_goal", "t": 2, "task_bar": 0.022727272727272728, "type": "REPLAN"}
+{"agent": "black", "kind": "reactor", "panels": ["reactor", "o2"], "room": null, "t": 3, "task_bar": 0.045454545454545456, "timer": 30, "type": "SABOTAGE"}
+{"agent": "green", "costs": {"o2": 5, "reactor": 8}, "t": 4, "task_bar": 0.06818181818181818, "type": "BID"}
+{"agent": "yellow", "costs": {"o2": 5, "reactor": 8}, "t": 4, "task_bar": 0.06818181818181818, "type": "BID"}
+{"agent": "yellow", "expanded": 3, "path": ["cafeteria", "weapons", "o2"], "reason": "new_goal", "t": 4, "task_bar": 0.06818181818181818, "type": "REPLAN"}
+{"agent": "black", "costs": {"o2": 6, "reactor": 0}, "t": 4, "task_bar": 0.06818181818181818, "type": "BID"}
+{"agent": "black", "expanded": 4, "path": ["reactor", "upper_engine", "cafeteria"], "reason": "new_goal", "t": 4, "task_bar": 0.06818181818181818, "type": "REPLAN"}
+{"agent": "white", "costs": {"o2": 2, "reactor": 4}, "t": 4, "task_bar": 0.06818181818181818, "type": "BID"}
+{"agent": "pink", "room": "medbay", "t": 4, "task_bar": 0.06818181818181818, "type": "ARRIVE"}
+{"agent": "orange", "room": "medbay", "t": 4, "task_bar": 0.06818181818181818, "type": "ARRIVE"}
+{"agent": "yellow", "eta": 3, "from": "cafeteria", "t": 4, "task_bar": 0.06818181818181818, "to": "weapons", "type": "MOVE"}
+{"agent": "black", "eta": 3, "from": "reactor", "t": 4, "task_bar": 0.06818181818181818, "to": "upper_engine", "type": "MOVE"}
+{"agent": "black", "eta": 5, "t": 5, "target": "reactor", "task_bar": 0.07954545454545454, "type": "COMMIT"}
+{"agent": "white", "eta": 7, "t": 5, "target": "o2", "task_bar": 0.07954545454545454, "type": "COMMIT"}
+{"agent": "green", "expanded": 3, "path": ["cafeteria", "weapons", "navigation"], "reason": "new_goal", "t": 5, "task_bar": 0.07954545454545454, "type": "REPLAN"}
+{"agent": "pink", "costs": {"o2": 8, "reactor": 7}, "t": 5, "task_bar": 0.07954545454545454, "type": "BID"}
+{"agent": "orange", "costs": {"o2": 8, "reactor": 7}, "t": 5, "task_bar": 0.07954545454545454, "type": "BID"}
+{"agent": "red", "room": "admin", "t": 5, "task_bar": 0.07954545454545454, "type": "ARRIVE"}
+{"agent": "blue", "room": "storage", "t": 5, "task_bar": 0.07954545454545454, "type": "ARRIVE"}
+{"agent": "green", "eta": 3, "from": "cafeteria", "t": 5, "task_bar": 0.07954545454545454, "to": "weapons", "type": "MOVE"}
+{"agent": "red", "costs": {"o2": 9, "reactor": 11}, "t": 6, "task_bar": 0.10227272727272728, "type": "BID"}
+{"agent": "blue", "costs": {"o2": 8, "reactor": 9}, "t": 6, "task_bar": 0.10227272727272728, "type": "BID"}
+{"agent": "blue", "expanded": 2, "path": ["storage", "communications"], "reason": "new_goal", "t": 6, "task_bar": 0.10227272727272728, "type": "REPLAN"}
+{"agent": "blue", "eta": 3, "from": "storage", "t": 6, "task_bar": 0.10227272727272728, "to": "communications", "type": "MOVE"}
+{"agent": "yellow", "room": "weapons", "t": 7, "task_bar": 0.13636363636363635, "type": "ARRIVE"}
+{"agent": "black", "room": "upper_engine", "t": 7, "task_bar": 0.13636363636363635, "type": "ARRIVE"}
+{"agent": "green", "room": "weapons", "t": 8, "task_bar": 0.17045454545454544, "type": "ARRIVE"}
+{"agent": "yellow", "eta": 2, "from": "weapons", "t": 8, "task_bar": 0.17045454545454544, "to": "o2", "type": "MOVE"}
+{"agent": "red", "expanded": 2, "path": ["admin", "storage"], "reason": "new_goal", "t": 9, "task_bar": 0.20454545454545456, "type": "REPLAN"}
+{"agent": "pink", "expanded": 3, "path": ["medbay", "cafeteria", "admin"], "reason": "new_goal", "t": 9, "task_bar": 0.20454545454545456, "type": "REPLAN"}
+{"agent": "blue", "room": "communications", "t": 9, "task_bar": 0.20454545454545456, "type": "ARRIVE"}
+{"agent": "red", "eta": 2, "from": "admin", "t": 9, "task_bar": 0.20454545454545456, "to": "storage", "type": "MOVE"}
+{"agent": "green", "eta": 4, "from": "weapons", "t": 9, "task_bar": 0.20454545454545456, "to": "navigation", "type": "MOVE"}
+{"agent": "pink", "eta": 3, "from": "medbay", "t": 9, "task_bar": 0.20454545454545456, "to": "cafeteria", "type": "MOVE"}
+{"agent": "black", "backup": "white", "backup_eta": 14, "eta": 5, "grace": 3, "t": 10, "target": "reactor", "task_bar": 0.2159090909090909, "type": "REVOKE"}
+{"agent": "orange", "expanded": 2, "path": ["medbay", "upper_engine"], "reason": "new_goal", "t": 10, "task_bar": 0.2159090909090909, "type": "REPLAN"}
+{"agent": "yellow", "room": "o2", "t": 10, "task_bar": 0.2159090909090909, "type": "ARRIVE"}
+{"agent": "orange", "eta": 4, "from": "medbay", "t": 10, "task_bar": 0.2159090909090909, "to": "upper_engine", "type": "MOVE"}
+{"agent": "black", "eta": 5, "from": "upper_engine", "t": 10, "task_bar": 0.2159090909090909, "to": "cafeteria", "type": "MOVE"}
+{"agent": "red", "room": "storage", "t": 11, "task_bar": 0.22727272727272727, "type": "ARRIVE"}
+{"agent": "white", "backup": "green", "backup_eta": 17, "eta": 7, "grace": 3, "t": 12, "target": "o2", "task_bar": 0.25, "type": "REVOKE"}
+{"agent": "pink", "room": "cafeteria", "t": 12, "task_bar": 0.25, "type": "ARRIVE"}
+{"agent": "blue", "expanded": 2, "path": ["communications", "shields"], "reason": "new_goal", "t": 13, "task_bar": 0.2840909090909091, "type": "REPLAN"}
+{"agent": "green", "room": "navigation", "t": 13, "task_bar": 0.2840909090909091, "type": "ARRIVE"}
+{"agent": "blue", "eta": 2, "from": "communications", "t": 13, "task_bar": 0.2840909090909091, "to": "shields", "type": "MOVE"}
+{"agent": "pink", "eta": 4, "from": "cafeteria", "t": 13, "task_bar": 0.2840909090909091, "to": "admin", "type": "MOVE"}
+{"agent": "green", "expanded": 2, "path": ["navigation", "o2"], "reason": "new_goal", "t": 14, "task_bar": 0.3068181818181818, "type": "REPLAN"}
+{"agent": "yellow", "expanded": 2, "path": ["o2", "navigation"], "reason": "new_goal", "t": 14, "task_bar": 0.3068181818181818, "type": "REPLAN"}
+{"agent": "orange", "room": "upper_engine", "t": 14, "task_bar": 0.3068181818181818, "type": "ARRIVE"}
+{"agent": "green", "eta": 3, "from": "navigation", "t": 14, "task_bar": 0.3068181818181818, "to": "o2", "type": "MOVE"}
+{"agent": "yellow", "eta": 3, "from": "o2", "t": 14, "task_bar": 0.3068181818181818, "to": "navigation", "type": "MOVE"}
+{"agent": "blue", "room": "shields", "t": 15, "task_bar": 0.3181818181818182, "type": "ARRIVE"}
+{"agent": "black", "room": "cafeteria", "t": 15, "task_bar": 0.3181818181818182, "type": "ARRIVE"}
+{"agent": "red", "expanded": 5, "path": ["storage", "lower_engine", "reactor"], "reason": "new_goal", "t": 16, "task_bar": 0.3409090909090909, "type": "REPLAN"}
+{"agent": "red", "eta": 6, "from": "storage", "t": 16, "task_bar": 0.3409090909090909, "to": "lower_engine", "type": "MOVE"}
+{"agent": "green", "room": "o2", "t": 17, "task_bar": 0.36363636363636365, "type": "ARRIVE"}
+{"agent": "pink", "room": "admin", "t": 17, "task_bar": 0.36363636363636365, "type": "ARRIVE"}
+{"agent": "yellow", "room": "navigation", "t": 17, "task_bar": 0.36363636363636365, "type": "ARRIVE"}
+{"agent": "orange", "expanded": 5, "path": ["upper_engine", "cafeteria", "admin"], "reason": "new_goal", "t": 18, "task_bar": 0.38636363636363635, "type": "REPLAN"}
+{"agent": "orange", "eta": 5, "from": "upper_engine", "t": 18, "task_bar": 0.38636363636363635, "to": "cafeteria", "type": "MOVE"}
+{"agent": "white", "backup": "orange", "backup_eta": 26, "eta": 14, "grace": 3, "t": 19, "target": "reactor", "task_bar": 0.42045454545454547, "type": "REVOKE"}
+{"agent": "green", "room": "o2", "t": 19, "task_bar": 0.42045454545454547, "type": "PANEL_DONE"}
+{"agent": "green", "expanded": 2, "path": ["o2", "navigation"], "reason": "new_goal", "t": 20, "task_bar": 0.45454545454545453, "type": "REPLAN"}
+{"agent": "green", "eta": 3, "from": "o2", "t": 20, "task_bar": 0.45454545454545453, "to": "navigation", "type": "MOVE"}
+{"agent": "blue", "expanded": 8, "path": ["shields", "storage", "lower_engine", "reactor"], "reason": "new_goal", "t": 21, "task_bar": 0.48863636363636365, "type": "REPLAN"}
+{"agent": "blue", "eta": 4, "from": "shields", "t": 21, "task_bar": 0.48863636363636365, "to": "storage", "type": "MOVE"}
+{"agent": "pink", "expanded": 7, "path": ["admin", "storage", "shields", "navigation"], "reason": "new_goal", "t": 22, "task_bar": 0.5113636363636364, "type": "REPLAN"}
+{"agent": "yellow", "expanded": 12, "path": ["navigation", "weapons", "cafeteria", "upper_engine", "security"], "reason": "new_goal", "t": 22, "task_bar": 0.5113636363636364, "type": "REPLAN"}
+{"agent": "red", "room": "lower_engine", "t": 22, "task_bar": 0.5113636363636364, "type": "ARRIVE"}
+{"agent": "pink", "eta": 2, "from": "admin", "t": 22, "task_bar": 0.5113636363636364, "to": "storage", "type": "MOVE"}
+{"agent": "yellow", "eta": 4, "from": "navigation", "t": 22, "task_bar": 0.5113636363636364, "to": "weapons", "type": "MOVE"}
+{"agent": "green", "room": "navigation", "t": 23, "task_bar": 0.5113636363636364, "type": "ARRIVE"}
+{"agent": "orange", "room": "cafeteria", "t": 23, "task_bar": 0.5113636363636364, "type": "ARRIVE"}
+{"agent": "red", "eta": 3, "from": "lower_engine", "t": 23, "task_bar": 0.5113636363636364, "to": "reactor", "type": "MOVE"}
+{"agent": "orange", "expanded": 4, "path": ["cafeteria", "upper_engine", "reactor"], "reason": "new_goal", "t": 24, "task_bar": 0.5113636363636364, "type": "REPLAN"}
+{"agent": "pink", "room": "storage", "t": 24, "task_bar": 0.5113636363636364, "type": "ARRIVE"}
+{"killer": "black", "room": "cafeteria", "t": 24, "task_bar": 0.5113636363636364, "type": "KILL", "victim": "orange", "witnesses": ["white"]}
+{"agent": "black", "room": "cafeteria", "t": 24, "task_bar": 0.5227272727272727, "type": "BODY_SEEN", "victim": "orange"}
+{"agent": "white", "room": "cafeteria", "t": 24, "task_bar": 0.5227272727272727, "type": "BODY_SEEN", "victim": "orange"}
+{"agent": "blue", "room": "storage", "t": 25, "task_bar": 0.5227272727272727, "type": "ARRIVE"}
+{"agent": "black", "from": "cafeteria", "t": 25, "task_bar": 0.5227272727272727, "to": "admin", "type": "VENT"}
+{"agent": "white", "from": "cafeteria", "t": 25, "task_bar": 0.5227272727272727, "to": "admin", "type": "VENT"}
+{"agent": "pink", "eta": 4, "from": "storage", "t": 25, "task_bar": 0.5227272727272727, "to": "shields", "type": "MOVE"}
+{"agent": "black", "expanded": 2, "path": ["admin", "cafeteria"], "reason": "new_goal", "t": 26, "task_bar": 0.5340909090909091, "type": "REPLAN"}
+{"agent": "white", "expanded": 2, "path": ["admin", "cafeteria"], "reason": "new_goal", "t": 26, "task_bar": 0.5340909090909091, "type": "REPLAN"}
+{"agent": "red", "room": "reactor", "t": 26, "task_bar": 0.5340909090909091, "type": "ARRIVE"}
+{"agent": "yellow", "room": "weapons", "t": 26, "task_bar": 0.5340909090909091, "type": "ARRIVE"}
+{"agent": "blue", "eta": 6, "from": "storage", "t": 26, "task_bar": 0.5340909090909091, "to": "lower_engine", "type": "MOVE"}
+{"agent": "black", "eta": 4, "from": "admin", "t": 26, "task_bar": 0.5340909090909091, "to": "cafeteria", "type": "MOVE"}
+{"agent": "white", "eta": 4, "from": "admin", "t": 26, "task_bar": 0.5340909090909091, "to": "cafeteria", "type": "MOVE"}
+{"agent": "yellow", "eta": 3, "from": "weapons", "t": 27, "task_bar": 0.5454545454545454, "to": "cafeteria", "type": "MOVE"}
+{"agent": "pink", "room": "shields", "t": 29, "task_bar": 0.5909090909090909, "type": "ARRIVE"}
+{"agent": "green", "expanded": 10, "path": ["navigation", "weapons", "cafeteria", "upper_engine", "reactor"], "reason": "new_goal", "t": 30, "task_bar": 0.6136363636363636, "type": "REPLAN"}
+{"agent": "yellow", "room": "cafeteria", "t": 30, "task_bar": 0.6136363636363636, "type": "ARRIVE"}
+{"agent": "black", "room": "cafeteria", "t": 30, "task_bar": 0.6136363636363636, "type": "ARRIVE"}
+{"agent": "white", "room": "cafeteria", "t": 30, "task_bar": 0.6136363636363636, "type": "ARRIVE"}
+{"agent": "green", "eta": 4, "from": "navigation", "t": 30, "task_bar": 0.6136363636363636, "to": "weapons", "type": "MOVE"}
+{"agent": "pink", "eta": 4, "from": "shields", "t": 30, "task_bar": 0.6136363636363636, "to": "navigation", "type": "MOVE"}
+{"agent": "yellow", "room": "cafeteria", "t": 30, "task_bar": 0.625, "type": "BODY_SEEN", "victim": "orange"}
+{"agent": "orange", "backup": "pink", "backup_eta": 38, "eta": 26, "grace": 3, "t": 31, "target": "reactor", "task_bar": 0.625, "type": "REVOKE"}
+{"agent": "red", "expanded": 2, "path": ["reactor", "security"], "reason": "new_goal", "t": 31, "task_bar": 0.625, "type": "REPLAN"}
+{"killer": "white", "room": "cafeteria", "t": 31, "task_bar": 0.625, "type": "KILL", "victim": "yellow", "witnesses": ["black"]}
+{"agent": "red", "eta": 2, "from": "reactor", "t": 31, "task_bar": 0.625, "to": "security", "type": "MOVE"}
+{"agent": "yellow", "meeting": 1, "room": "cafeteria", "t": 31, "task_bar": 0.625, "type": "REPORT", "victim": "orange"}
+{"agent": "black", "room": "cafeteria", "t": 31, "task_bar": 0.625, "type": "BODY_SEEN", "victim": "yellow"}
+{"agent": "white", "room": "cafeteria", "t": 31, "task_bar": 0.625, "type": "BODY_SEEN", "victim": "yellow"}
+{"agent": "blue", "room": "lower_engine", "t": 32, "task_bar": 0.625, "type": "ARRIVE"}
+{"agent": "white", "from": "cafeteria", "t": 32, "task_bar": 0.625, "to": "admin", "type": "VENT"}
+{"reason": "reactor_timer", "t": 32, "task_bar": 0.625, "ticks": 32, "type": "GAME_OVER", "winner": "impostor"}
