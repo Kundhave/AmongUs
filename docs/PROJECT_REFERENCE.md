@@ -392,6 +392,29 @@ Two rounds per meeting: round 2 sees round 1, so agents contradict and defend. `
 
 If someone pushes further — *"so is your system principled or not?"* — the honest answer is: the **environment and the search are exact and verifiable**; the **social inference is a heuristic approximation with a stated failure mode**, and we can swap it for a deterministic rule-based `template` deliberator with one config string and measure the difference. That measurement is one of our ablations.
 
+### 9.5 What the LLM actually produces — measured
+
+S2 `worked_example`: `blue` (impostor) kills `red` alone in `electrical` at t=43; `green` walks in at t=46 and reports at t=47.
+
+**Rule-based `template` deliberator** — every agent recites its most recent location note:
+
+```
+green   "t=46 I found red's body in electrical."
+blue    "t=46 I was in electrical with green."
+pink    "t=46 I was in cafeteria with orange, yellow, black and white."
+vote: skip 4, green 2, blue 1 -> no ejection
+```
+
+**Gemini `gemini-3.8-flash`** — the impostor, same game state:
+
+```
+blue    "I walked into electrical right as green was standing near red's body ..."
+```
+
+That single line is the entire argument for the architecture. `blue` is the murderer, and it invents a counter-narrative that recasts the agent who found the body as the suspect. Nothing in the template's vocabulary can express that, and — more to the point — **no hand-written likelihood function could score it**, because the space of such sentences is unbounded. That is §9.3's argument, demonstrated rather than asserted.
+
+Note the honest framing for the viva: the template baseline is not *stupid*, it is *literal*. It reports true observations. The LLM's contribution is the capacity to **construct a false but internally coherent account** — which is exactly what makes social deduction a hard problem and what exact inference over a fixed schema cannot represent.
+
 ### 9.4 Engineering that makes it demo-safe
 
 | Concern | Mitigation |
@@ -622,10 +645,54 @@ It replays from the log alone and never imports the simulator, which means it ca
 | Number | Produced by | Status |
 |---|---|---|
 | A\*/Dijkstra/BFS/greedy expansions and path costs | `python scripts/bench.py` | ✅ **measured** — §8.4 |
-| S2 statements, suspicion values, vote tally | `runner --scenario worked_example --seed 3` | TBD (M3) |
-| S3 commit/revoke ticks and fix time | `runner --scenario reactor_defect` | TBD (M4) |
-| S4 stall tick, recovery tick, completion rate | `runner --scenario standoff` | TBD (M4) |
-| Four ablation win rates | batch runs | TBD (M5) |
+| Balance and ablations | 30-seed sweep, `deliberator=template` | ✅ **measured** — below |
+| S3 commit/revoke ticks and fix time | `runner --scenario reactor_defect` | ✅ **measured** — below |
+| S2 statements and vote tally | `runner --scenario worked_example --deliberator gemini` | ✅ **measured** — §9.5 |
+
+### Simulation balance — 30 seeds, `deliberator=template`, defaults
+
+| | |
+|---|---|
+| Winners | crew 16 / impostor 13 / draw 1 |
+| Mean game length | 90.8 ticks |
+| Kills per game | 1.63 |
+| Meetings per game | 0.47 |
+| Sabotages per game | 2.60 |
+| Reactor repairs completed | 1.50 per game |
+| Commitment revocations | 0.87 per game |
+
+Near-even win rates on an adversarial game is the headline: neither side is broken.
+
+### The four ablations — 30 seeds each
+
+| Setting | crew | imp | draw | mean ticks | reactors fixed | revocations | stalls |
+|---|---|---|---|---|---|---|---|
+| **baseline** (all protocols on) | 16 | 13 | 1 | 90.8 | 1.50 | 0.87 | 0.23 |
+| `commit_protocol=False` | 17 | 10 | 3 | **143.7** | 2.70 | **0.00** | 0.50 |
+| `deadlock_protocol=False` | 15 | 14 | 1 | 92.0 | 1.50 | 0.87 | **0.00** |
+| `planner=astar_no_risk` | 16 | 13 | 1 | 90.8 | 1.50 | 0.87 | 0.23 |
+
+Read these honestly — two show a clear effect and two do not:
+
+- **`commit_protocol=False` works as predicted.** Zero revocations by construction (there are no commitments to revoke), and games run **58% longer** (143.7 vs 90.8 ticks) because uncoordinated agents both rush the nearest panel instead of splitting them. This is the renegotiation protocol earning its place.
+- **`deadlock_protocol=False`** correctly suppresses all stall detection (0.00 vs 0.23 per game). The win rates barely move because, with the other fixes in, stalls are now rare — so the mechanism matters in the specific situation it was built for rather than on average. Scenario **S4** demonstrates it directly: same seed, one flag, stall-and-recover versus stall-to-draw.
+- **`planner=astar_no_risk` shows no measurable effect**, and we report that rather than hiding it. The switch is correctly wired, but the risk term is `alpha_risk × suspicion`, and suspicion is only populated *at meetings* — which happen 0.47 times per game. With suspicion mostly zero, the risk-weighted cost reduces to plain distance and the two planners compute identical routes. The mechanism is real and unit-tested; the *opportunity* to exercise it is rare. To show it properly you need a scenario with an early meeting.
+
+### S3 `reactor_defect` — the renegotiation arc, seed 3
+
+```
+t=3   SABOTAGE  black starts reactor        (timer 30)
+t=4-6 BID ×8    every agent bids A* cost to each panel
+t=6   COMMIT    black→reactor eta=6 | white→o2 eta=8
+t=10  REVOKE    black (eta 6 + grace 3) → backup orange
+t=12  REVOKE    white (eta 8 + grace 3) → backup green
+t=19  PANEL_DONE green @o2
+t=20  PANEL_DONE orange @reactor
+t=20  SABOTAGE_FIXED  ticks=17
+t=34  MEETING #1 — black suspicion 0.50 vs 0.10 baseline for every other agent
+```
+
+The last line is the payoff: the defector's broken commitment became a `missed_commit` note in every agent's memory, which raised its suspicion before anyone spoke. **A coordination failure was converted into social evidence.**
 
 **Measured search results — safe to use now:**
 

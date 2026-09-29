@@ -89,7 +89,8 @@ def test_retryable_error_backs_off_and_then_succeeds(tmp_path, monkeypatch) -> N
     sleeps: list[float] = []
     monkeypatch.setattr("amongus.llm.client.time.sleep", lambda s: sleeps.append(s))
     models = _CountingModels(texts=["good"])
-    models.generate_content = _raising_then_ok(models, ["503 UNAVAILABLE", "429 RESOURCE_EXHAUSTED"])
+    errors = ["503 UNAVAILABLE", "429 RESOURCE_EXHAUSTED"]
+    models.generate_content = _raising_then_ok(models, errors)
     client = LLMClient(
         model="m", cache_path=str(tmp_path / "c.jsonl"), genai_client=_FakeGenAIClient(models)
     )
