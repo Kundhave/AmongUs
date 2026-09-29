@@ -35,8 +35,13 @@ def _agent_notes(engine, agent_id: AgentId, limit: int) -> list[Note]:
     return memory.recent(limit) if memory is not None else []
 
 
-def _sanitize(statement: Statement, ctx: MeetingContext) -> Statement:
-    """Clamp suspicion to [0,1], drop unknown/self ids, and veto an impostor voting its partner."""
+def _sanitize(statement: Statement, ctx: MeetingContext, theta_vote: float) -> Statement:
+    """Clamp suspicion, drop unknown/self ids, veto a partner vote, and enforce theta_vote.
+
+    §10.4's threshold is a property of the voting rule itself, not of one Deliberator: a
+    crewmate's vote only stands if its target's suspicion clears `theta_vote`, whether the
+    Statement came from the template or from Gemini verbatim.
+    """
     suspicion = {
         agent: max(0.0, min(1.0, float(score)))
         for agent, score in statement.suspicion.items()
@@ -47,6 +52,9 @@ def _sanitize(statement: Statement, ctx: MeetingContext) -> Statement:
         vote not in ctx.alive or vote == ctx.self_id or vote == ctx.partner_id
     ):
         vote = None
+    if vote is not None and ctx.role is not Role.IMPOSTOR:
+        if suspicion.get(vote, 0.0) < theta_vote:
+            vote = None
     return Statement(speaker=ctx.self_id, text=statement.text, suspicion=suspicion, vote=vote)
 
 
@@ -77,29 +85,35 @@ class MeetingProtocol:
         order = ([first] if first is not None else []) + list(rest)
         partner_of = _partner_of(world)
 
+        def build_ctx(
+            speaker: AgentId, round_idx: int, transcript_so_far: list[Statement]
+        ) -> MeetingContext:
+            """Assemble one speaker's MeetingContext from the transcript as of this call."""
+            return MeetingContext(
+                self_id=speaker,
+                role=world.agents[speaker].role,
+                alive=list(alive),
+                notes=_agent_notes(engine, speaker, cfg.notes_in_prompt),
+                transcript=transcript_so_far,
+                round=round_idx,
+                partner_id=partner_of.get(speaker),
+                reporter=first,
+                meeting=meeting_no,
+            )
+
         transcript: list[Statement] = []
         round2: dict[AgentId, Statement] = {}
-        for round_idx in (1, 2):
-            # Frozen at round start: a concurrent round can only see fully completed prior
-            # rounds, never a same-round speaker who hasn't been resolved yet (§9.3, §10).
-            round_transcript = list(transcript)
-            ctxs = {
-                speaker: MeetingContext(
-                    self_id=speaker,
-                    role=world.agents[speaker].role,
-                    alive=list(alive),
-                    notes=_agent_notes(engine, speaker, cfg.notes_in_prompt),
-                    transcript=list(round_transcript),
-                    round=round_idx,
-                    partner_id=partner_of.get(speaker),
-                    reporter=first,
-                    meeting=meeting_no,
-                )
-                for speaker in order
-            }
-            self._prefetch_round(list(ctxs.values()))
+        last_round = cfg.meeting_rounds
+        for round_idx in range(1, cfg.meeting_rounds + 1):
+            # Best-effort cache warm-up only, snapshotted at round start (§9.3): it may
+            # therefore miss a same-round speaker's reply, which is fine since the real
+            # ctx built below always carries the live transcript and is what's actually used.
+            prefetch_ctxs = [build_ctx(speaker, round_idx, list(transcript)) for speaker in order]
+            self._prefetch_round(prefetch_ctxs)
             for speaker in order:
-                ctx = ctxs[speaker]
+                # Live transcript (§9.2 block 4, §10.1): each speaker sees every statement
+                # already made this meeting, including earlier speakers in this same round.
+                ctx = build_ctx(speaker, round_idx, list(transcript))
                 statement = self._speak(engine, ctx, meeting_no, round_idx)
                 transcript.append(statement)
                 engine.emit(
@@ -110,7 +124,7 @@ class MeetingProtocol:
                     "SUSPICION", meeting=meeting_no, round=round_idx, agent=speaker,
                     scores=dict(statement.suspicion),
                 )
-                if round_idx == 2:
+                if round_idx == last_round:
                     round2[speaker] = statement
 
         self._vote_and_eject(engine, world, alive, round2, meeting_no)
@@ -138,7 +152,7 @@ class MeetingProtocol:
         except Exception:
             engine.emit("LLM_PARSE_FAIL", agent=ctx.self_id, meeting=meeting_no, round=round_idx)
             statement = self._fallback.speak(ctx)
-        return _sanitize(statement, ctx)
+        return _sanitize(statement, ctx, self.config.theta_vote)
 
     def _vote_and_eject(self, engine, world, alive: list[AgentId], round2, meeting_no: int) -> None:
         """Tally round-2 votes, eject on a clear plurality, and store each agent's suspicion."""
@@ -180,10 +194,17 @@ class MeetingProtocol:
         )
 
     def _log_meeting_note(self, engine, alive, meeting_no, ejected, was_impostor) -> None:
-        """Append the §7.1 `meeting` note to every alive agent's log and per-policy memory."""
+        """Append the §7.1 `meeting` note to every alive agent's log and per-policy memory.
+
+        With `ejection_reveals_role=False`, `was_impostor` stays None and the note states
+        only that the agent was ejected — never fabricating a role that was never announced.
+        """
         if ejected is not None:
-            role_word = "impostor" if was_impostor else "crewmate"
-            text = f"Meeting {meeting_no}: {ejected} was ejected and was an {role_word}."
+            if was_impostor is None:
+                text = f"Meeting {meeting_no}: {ejected} was ejected."
+            else:
+                role_word = "an impostor" if was_impostor else "a crewmate"
+                text = f"Meeting {meeting_no}: {ejected} was ejected and was {role_word}."
         else:
             text = f"Meeting {meeting_no}: no one was ejected."
         note = Note(tick=engine.world.tick, kind="meeting", text=text)

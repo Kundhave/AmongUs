@@ -92,10 +92,10 @@ def test_plurality_ejects_the_top_target() -> None:
     target = ids[1]
     engine.world.agents[target].role = Role.IMPOSTOR
     stmt = {
-        ids[0]: Statement(ids[0], "x", {}, vote=target),
+        ids[0]: Statement(ids[0], "x", {target: 0.9}, vote=target),
         ids[1]: Statement(ids[1], "x", {}, vote=None),
-        ids[2]: Statement(ids[2], "x", {}, vote=target),
-        ids[3]: Statement(ids[3], "x", {}, vote=target),
+        ids[2]: Statement(ids[2], "x", {target: 0.9}, vote=target),
+        ids[3]: Statement(ids[3], "x", {target: 0.9}, vote=target),
     }
     protocol = MeetingProtocol(engine.config, deliberator=_FixedDeliberator(stmt))
     _fire_meeting(engine, protocol, reporter=ids[0], victim=ids[2])
@@ -148,9 +148,9 @@ def test_ejection_adds_meeting_note_for_survivors() -> None:
     ids = list(engine.world.agents)
     target = ids[1]
     stmt = {
-        ids[0]: Statement(ids[0], "x", {}, vote=target),
+        ids[0]: Statement(ids[0], "x", {target: 0.9}, vote=target),
         ids[1]: Statement(ids[1], "x", {}, vote=None),
-        ids[2]: Statement(ids[2], "x", {}, vote=target),
+        ids[2]: Statement(ids[2], "x", {target: 0.9}, vote=target),
         ids[3]: Statement(ids[3], "x", {}, vote=None),
     }
     protocol = MeetingProtocol(engine.config, deliberator=_FixedDeliberator(stmt))

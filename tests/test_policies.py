@@ -50,13 +50,15 @@ def _obs(
     local_events: list[dict] | None = None,
     partner_id: str | None = None,
     sabotage_alarm=None,
+    death_notices: list[str] | None = None,
 ) -> Observation:
     """Build an Observation with the fields CrewmatePolicy/ImpostorPolicy actually read."""
     return Observation(
         self_id=self_id, tick=tick, room=room, self_phys=self_phys,
         occupants=occupants or [], bodies_here=bodies_here or [], local_events=local_events or [],
         task_bar=0.0, sabotage_alarm=sabotage_alarm, closed_doors=frozenset(), radio=[],
-        stall_flag=False, death_notices=[], partner_id=partner_id, partner_room=None,
+        stall_flag=False, death_notices=death_notices or [], partner_id=partner_id,
+        partner_room=None,
     )
 
 
@@ -66,6 +68,27 @@ def test_crewmate_reports_body_over_pending_tasks() -> None:
     tasks = [TaskInstance(task_id="t01", room="weapons", duration=4)]
     phys = _phys("red", Role.CREWMATE, "electrical", tasks=tasks)
     obs = _obs("red", phys, "electrical", bodies_here=["blue"])
+    assert policy.decide(obs) == Report()
+
+
+def test_crewmate_does_not_rereport_an_already_reported_body() -> None:
+    """§7/§11.1 step 1: a body already in death_notices is not re-reported; falls to its task."""
+    policy = CrewmatePolicy("red", _CFG)
+    tasks = [TaskInstance(task_id="t01", room="electrical", duration=4)]
+    phys = _phys("red", Role.CREWMATE, "electrical", tasks=tasks)
+    obs = _obs("red", phys, "electrical", bodies_here=["blue"], death_notices=["blue"])
+    action = policy.decide(obs)
+    assert action != Report()
+    assert action == DoTask(task_id="t01")
+
+
+def test_crewmate_still_reports_an_unreported_body_alongside_a_reported_one() -> None:
+    """A room with one reported and one still-unreported body is still Reported."""
+    policy = CrewmatePolicy("red", _CFG)
+    phys = _phys("red", Role.CREWMATE, "electrical")
+    obs = _obs(
+        "red", phys, "electrical", bodies_here=["blue", "green"], death_notices=["blue"]
+    )
     assert policy.decide(obs) == Report()
 
 
@@ -167,6 +190,28 @@ def test_alpha_risk_changes_the_chosen_route() -> None:
 
     assert first_hop(0.0) == "o2"  # unweighted shortest path: weapons->o2->shields (6)
     assert first_hop(5.0) == "navigation"  # risk on o2 flips it to weapons->navigation->shields
+
+
+def test_planner_astar_no_risk_ignores_suspicion_and_matches_plain_distance() -> None:
+    """§8.2 ablation: `planner=astar_no_risk` zeroes the risk term even with alpha_risk > 0."""
+    task = [TaskInstance(task_id="t11", room="shields", duration=4)]
+
+    def first_hop(planner: str) -> str:
+        cfg = replace(SimConfig(), alpha_risk=5.0, planner=planner)
+        policy = CrewmatePolicy("red", cfg)
+        policy.memory.suspicion["blue"] = 0.9
+        policy.memory.last_seen["blue"] = ("o2", 9)  # o2 sits on the cheap weapons->shields leg
+        phys = _phys("red", Role.CREWMATE, "weapons", tasks=task)
+        obs = _obs("red", phys, "weapons", tick=10)
+        action = policy.decide(obs)
+        assert isinstance(action, Move)
+        return action.to
+
+    # With risk on, the same seen-blue-at-o2 signal that flips the route in
+    # test_alpha_risk_changes_the_chosen_route also flips it here (astar plans around it)...
+    assert first_hop("astar") == "navigation"
+    # ...but astar_no_risk ignores suspicion entirely, reproducing the plain-distance route.
+    assert first_hop("astar_no_risk") == "o2"
 
 
 def test_crewmate_routes_to_button_after_witnessing_kill() -> None:
