@@ -115,7 +115,13 @@ class GeminiDeliberator:
     def __init__(self, config: SimConfig, client: LLMClient | None = None) -> None:
         """Build (or accept) the cached LLMClient and an offline fallback for a missing key."""
         self.config = config
-        self.client = client or LLMClient(model=config.llm_model, cache_path=config.llm_cache)
+        self.client = client or LLMClient(
+            model=config.llm_model,
+            cache_path=config.llm_cache,
+            max_workers=config.llm_max_workers,
+            max_attempts=config.llm_max_attempts,
+            backoff_base=config.llm_backoff_base,
+        )
         self._fallback = TemplateDeliberator(theta_vote=config.theta_vote)
 
     def speak(self, ctx: MeetingContext) -> Statement:

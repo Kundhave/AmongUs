@@ -80,24 +80,78 @@ def test_missing_key_returns_none_and_logs(tmp_path, monkeypatch, caplog) -> Non
     assert all("GEMINI_API_KEY not set" in r.message for r in caplog.records if "KEY" in r.message)
 
 
-def test_call_retries_once_then_returns_none(tmp_path) -> None:
-    """A transport error retries exactly once, then returns None without raising."""
-    models = _CountingModels(raise_times=2)
-    client = LLMClient(
-        model="m", cache_path=str(tmp_path / "c.jsonl"), genai_client=_FakeGenAIClient(models)
-    )
-    assert client.call("prompt") is None
-    assert models.calls == 2
+class _CodedError(Exception):
+    """An exception whose message carries a fake transport status code/text."""
 
 
-def test_call_succeeds_after_one_retry(tmp_path) -> None:
-    """A single transient failure is absorbed by the one retry, returning the next reply."""
-    models = _CountingModels(texts=["good"], raise_times=1)
+def test_retryable_error_backs_off_and_then_succeeds(tmp_path, monkeypatch) -> None:
+    """A 503-like error twice then success: the call succeeds and sleeps with increasing delays."""
+    sleeps: list[float] = []
+    monkeypatch.setattr("amongus.llm.client.time.sleep", lambda s: sleeps.append(s))
+    models = _CountingModels(texts=["good"])
+    models.generate_content = _raising_then_ok(models, ["503 UNAVAILABLE", "429 RESOURCE_EXHAUSTED"])
     client = LLMClient(
         model="m", cache_path=str(tmp_path / "c.jsonl"), genai_client=_FakeGenAIClient(models)
     )
     assert client.call("prompt") == "good"
-    assert models.calls == 2
+    assert models.calls == 3
+    assert len(sleeps) == 2
+    assert sleeps[0] < sleeps[1]  # exponential backoff: each delay strictly grows
+
+
+def test_retryable_error_exhausts_all_attempts_then_falls_back(tmp_path, monkeypatch) -> None:
+    """Every attempt fails with a retryable error: returns None, never raises, still sleeps."""
+    monkeypatch.setattr("amongus.llm.client.time.sleep", lambda s: None)
+    models = _CountingModels()
+    models.generate_content = _always_raising(models, "503 UNAVAILABLE")
+    client = LLMClient(
+        model="m", cache_path=str(tmp_path / "c.jsonl"), genai_client=_FakeGenAIClient(models),
+        max_attempts=4,
+    )
+    assert client.call("prompt") is None
+    assert models.calls == 4
+
+
+def test_fatal_error_never_retries(tmp_path, monkeypatch, caplog) -> None:
+    """A 404-like error (bad model name) returns None immediately with no sleep and one log line."""
+    sleeps: list[float] = []
+    monkeypatch.setattr("amongus.llm.client.time.sleep", lambda s: sleeps.append(s))
+    models = _CountingModels()
+    models.generate_content = _always_raising(models, "404 NOT_FOUND: model not found")
+    client = LLMClient(
+        model="m", cache_path=str(tmp_path / "c.jsonl"), genai_client=_FakeGenAIClient(models)
+    )
+    with caplog.at_level(logging.WARNING):
+        assert client.call("prompt") is None
+    assert models.calls == 1
+    assert sleeps == []
+    fatal_logs = [r for r in caplog.records if "not retrying" in r.message]
+    assert len(fatal_logs) == 1
+
+
+def _always_raising(models: "_CountingModels", message: str):
+    """Build a `generate_content` stand-in that always raises `_CodedError(message)`."""
+
+    def _fn(*, model, contents, config):
+        models.calls += 1
+        raise _CodedError(message)
+
+    return _fn
+
+
+def _raising_then_ok(models: "_CountingModels", messages: list[str]):
+    """Build a `generate_content` stand-in raising each message in turn, then delegating."""
+    state = {"i": 0}
+
+    def _fn(*, model, contents, config):
+        models.calls += 1
+        if state["i"] < len(messages):
+            msg = messages[state["i"]]
+            state["i"] += 1
+            raise _CodedError(msg)
+        return _FakeResponse("good")
+
+    return _fn
 
 
 def test_call_writes_and_reloads_the_cache(tmp_path) -> None:

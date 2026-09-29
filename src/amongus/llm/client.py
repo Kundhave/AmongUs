@@ -4,32 +4,17 @@ import hashlib
 import json
 import logging
 import os
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Protocol
 
+from amongus.llm._retry import backoff_delay, is_retryable
+
 logger = logging.getLogger(__name__)
 
 _JSON_MIME = "application/json"
-
-# Fatal: retrying burns wall-clock for an error that will never succeed (bad model name,
-# bad/missing credentials). Everything else — including 503/UNAVAILABLE/429/RESOURCE_EXHAUSTED
-# and any error text we don't recognise — is worth a retry.
-_FATAL_RE = re.compile(
-    r"\b(404|NOT_FOUND|401|403|UNAUTHENTICATED|PERMISSION_DENIED|invalid[ _-]?api[ _-]?key)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_retryable(exc: Exception) -> bool:
-    """Classify a transport error: fatal codes never retry; unrecognised ones do (safe default)."""
-    text = str(exc)
-    if _FATAL_RE.search(text):
-        return False
-    return True
 
 
 class _GenAIClient(Protocol):
@@ -58,16 +43,21 @@ class LLMClient:
         model: str,
         cache_path: str,
         genai_client: _GenAIClient | None = None,
-        max_workers: int = 8,
+        max_workers: int = 4,
+        max_attempts: int = 4,
+        backoff_base: float = 1.5,
     ) -> None:
         """Build the client: load the on-disk cache, and connect only if a key is present.
 
         `genai_client` lets tests inject a fake (or one that raises) instead of a real SDK
-        client — the seam that proves a cache hit never reaches the network.
+        client — the seam that proves a cache hit never reaches the network. `max_attempts`
+        and `backoff_base` drive `_call_network`'s retry ladder (§9.3, SimConfig knobs).
         """
         self.model = model
         self.cache_path = cache_path
         self.max_workers = max_workers
+        self.max_attempts = max_attempts
+        self.backoff_base = backoff_base
         self._lock = threading.Lock()
         self._cache: dict[str, str] = self._load_cache()
         if genai_client is not None:
@@ -92,12 +82,12 @@ class LLMClient:
         return hashlib.sha256(f"{self.model}\n{prompt}".encode()).hexdigest()
 
     def call(self, prompt: str, force_refresh: bool = False) -> str | None:
-        """Return the model's raw text for prompt: cache hit, else one call plus one retry.
+        """Return the model's raw text for prompt: cache hit, else a backoff retry ladder.
 
         `force_refresh` skips the cache lookup (but still writes the result back under the
         same key) — used for GeminiDeliberator's single parse-failure retry, so a second
         attempt can actually reach the network instead of re-reading the same bad response.
-        Never raises: any transport failure, after one retry, returns None.
+        Never raises: any transport failure, after `max_attempts` tries, returns None.
         """
         key = self.cache_key(prompt)
         if not force_refresh:
@@ -148,8 +138,14 @@ class LLMClient:
         return results
 
     def _call_network(self, prompt: str) -> str | None:
-        """One call plus one retry on a transport error; never raises (§9.3)."""
-        for attempt in range(2):
+        """Up to `max_attempts` tries with exponential backoff; never raises (§9.3).
+
+        A fatal error (bad model name, bad credentials) logs once and returns immediately.
+        A retryable error (busy model, rate limit) backs off before the next try. Defaults
+        (4 attempts, base 1.5s) bound the worst case to ~10.5s of sleep before falling back;
+        since a round's calls run concurrently, that is also the round's worst case.
+        """
+        for attempt in range(self.max_attempts):
             try:
                 response = self._client.models.generate_content(
                     model=self.model,
@@ -158,10 +154,24 @@ class LLMClient:
                 )
                 return response.text
             except Exception as exc:  # noqa: BLE001 — a transport failure must never crash a run
+                if not is_retryable(exc):
+                    logger.warning(
+                        "Gemini call failed fatally (%s: %s) — not retrying; check the "
+                        "configured model name or API key.",
+                        type(exc).__name__,
+                        exc,
+                    )
+                    return None
+                is_last = attempt == self.max_attempts - 1
                 logger.info(
-                    "Gemini call failed on attempt %d (%s)", attempt + 1, type(exc).__name__
+                    "Gemini call failed on attempt %d/%d (%s)",
+                    attempt + 1,
+                    self.max_attempts,
+                    type(exc).__name__,
                 )
-                continue
+                if is_last:
+                    break
+                time.sleep(backoff_delay(self.backoff_base, attempt))
         return None
 
     def _store(self, key: str, response: str) -> None:
